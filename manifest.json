@@ -627,6 +627,24 @@
           "value": "2048",
           "required": false,
           "description": "LLM batch size"
+        },
+        {
+          "key": "EZLOCALAI_VOICE_SERVER",
+          "value": "",
+          "required": false,
+          "description": "Voice server URL for offloading TTS/STT, or 'true' to make this a dedicated voice server"
+        },
+        {
+          "key": "EZLOCALAI_IMAGE_SERVER",
+          "value": "",
+          "required": false,
+          "description": "Image server URL for offloading image/video generation, or 'true' to make this a dedicated image server"
+        },
+        {
+          "key": "EZLOCALAI_TEXT_SERVER",
+          "value": "",
+          "required": false,
+          "description": "Text server URL for offloading LLM requests, or 'true' to explicitly mark as text server"
         }
       ]
     },

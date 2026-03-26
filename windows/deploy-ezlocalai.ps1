@@ -15,6 +15,8 @@ $SttEnabled = if ($env:EZLOCALAI_STT_ENABLED) { $env:EZLOCALAI_STT_ENABLED } els
 $QuantType = if ($env:EZLOCALAI_QUANT_TYPE) { $env:EZLOCALAI_QUANT_TYPE } else { "Q4_K_XL" }
 $BatchSize = if ($env:EZLOCALAI_BATCH_SIZE) { $env:EZLOCALAI_BATCH_SIZE } else { "2048" }
 $VoiceServer = if ($env:EZLOCALAI_VOICE_SERVER) { $env:EZLOCALAI_VOICE_SERVER } else { "" }
+$ImageServer = if ($env:EZLOCALAI_IMAGE_SERVER) { $env:EZLOCALAI_IMAGE_SERVER } else { "" }
+$TextServer = if ($env:EZLOCALAI_TEXT_SERVER) { $env:EZLOCALAI_TEXT_SERVER } else { "" }
 $RepoUrl = "https://github.com/DevXT-LLC/ezlocalai.git"
 
 # If IMG_MODEL doesn't contain a "/", treat it as disabled (empty)
@@ -147,6 +149,8 @@ STT_ENABLED=$SttEnabled
 QUANT_TYPE=$QuantType
 LLM_BATCH_SIZE=$BatchSize
 VOICE_SERVER=$VoiceServer
+IMAGE_SERVER=$ImageServer
+TEXT_SERVER=$TextServer
 "@ | Set-Content -Path $EnvFile -Encoding UTF8
 
 Write-Host "Configuration written."
