@@ -1,5 +1,5 @@
 {
-  "version": "1.1.0",
+  "version": "1.2.0",
   "name": "XT Systems Deployment Library",
   "description": "Public collection of cross-platform deployment scripts for XT Systems managed machines",
   "repository": "https://github.com/DevXT-LLC/DeploymentLibrary",
@@ -294,6 +294,62 @@
         "windows": "windows/install-7zip.ps1"
       },
       "environment_variables": []
+    },
+    {
+      "id": "install-mit-appinventor",
+      "name": "Install MIT App Inventor Setup Tools",
+      "description": "Downloads and silently installs the latest MIT App Inventor setup tools for emulator and USB testing.",
+      "category": "Software",
+      "platforms": ["windows"],
+      "script_language": "powershell",
+      "scripts": {
+        "windows": "windows/install-mit-appinventor.ps1"
+      },
+      "environment_variables": [
+        {
+          "key": "APPINVENTOR_INSTALL_SCOPE",
+          "value": "all",
+          "required": false,
+          "description": "Install scope passed to the MIT installer: all or current"
+        },
+        {
+          "key": "APPINVENTOR_INSTALLER_URL",
+          "value": "",
+          "required": false,
+          "description": "Optional direct installer URL override for pinned or mirrored deployments"
+        }
+      ]
+    },
+    {
+      "id": "update-mit-appinventor",
+      "name": "Update MIT App Inventor Setup Tools",
+      "description": "Downloads the latest MIT App Inventor setup tools and runs the Windows installer in update mode.",
+      "category": "Software",
+      "platforms": ["windows"],
+      "script_language": "powershell",
+      "scripts": {
+        "windows": "windows/update-mit-appinventor.ps1"
+      },
+      "environment_variables": [
+        {
+          "key": "APPINVENTOR_INSTALL_SCOPE",
+          "value": "all",
+          "required": false,
+          "description": "Install scope passed to the MIT installer: all or current"
+        },
+        {
+          "key": "APPINVENTOR_INSTALLER_URL",
+          "value": "",
+          "required": false,
+          "description": "Optional direct installer URL override for pinned or mirrored deployments"
+        },
+        {
+          "key": "AUTO_REBOOT",
+          "value": "false",
+          "required": false,
+          "description": "Whether to reboot after updating (true/false)"
+        }
+      ]
     },
     {
       "id": "windows-update",

@@ -26,6 +26,8 @@ linux/                 # Bash scripts for Linux/macOS
 | Install Node.js | Windows, Linux | Software |
 | Install Google Chrome | Windows, Linux | Software |
 | Install 7-Zip | Windows | Software |
+| Install MIT App Inventor Setup Tools | Windows | Software |
+| Update MIT App Inventor Setup Tools | Windows | Software |
 | Collect System Information | Windows, Linux, macOS | Diagnostics |
 | Disk Cleanup | Windows, Linux | Maintenance |
 | Run Windows Update | Windows | Maintenance |
