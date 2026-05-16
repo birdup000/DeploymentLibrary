@@ -115,6 +115,159 @@
       "environment_variables": []
     },
     {
+      "id": "install-chrome-enterprise",
+      "name": "Install Google Chrome Enterprise",
+      "description": "Installs the latest Google Chrome Enterprise MSI on Windows and optionally stages Chrome ADMX/ADML policy templates.",
+      "category": "Software",
+      "platforms": ["windows"],
+      "script_language": "powershell",
+      "scripts": {
+        "windows": "windows/install-chrome-enterprise.ps1"
+      },
+      "environment_variables": [
+        {
+          "key": "INSTALL_POLICY_TEMPLATES",
+          "value": "true",
+          "required": false,
+          "description": "Whether to install Chrome policy templates into C:\\Windows\\PolicyDefinitions (true/false)"
+        },
+        {
+          "key": "POLICY_TEMPLATE_LANGUAGE",
+          "value": "en-US",
+          "required": false,
+          "description": "ADML language folder to install from the Chrome policy template archive"
+        }
+      ]
+    },
+    {
+      "id": "update-chrome-enterprise",
+      "name": "Update Google Chrome Enterprise",
+      "description": "Reinstalls the latest Google Chrome Enterprise MSI on Windows and optionally refreshes Chrome ADMX/ADML policy templates.",
+      "category": "Maintenance",
+      "platforms": ["windows"],
+      "script_language": "powershell",
+      "scripts": {
+        "windows": "windows/update-chrome-enterprise.ps1"
+      },
+      "environment_variables": [
+        {
+          "key": "INSTALL_POLICY_TEMPLATES",
+          "value": "true",
+          "required": false,
+          "description": "Whether to install Chrome policy templates into C:\\Windows\\PolicyDefinitions (true/false)"
+        },
+        {
+          "key": "POLICY_TEMPLATE_LANGUAGE",
+          "value": "en-US",
+          "required": false,
+          "description": "ADML language folder to install from the Chrome policy template archive"
+        }
+      ]
+    },
+    {
+      "id": "configure-chrome-enterprise-policies",
+      "name": "Configure Chrome Enterprise Policies",
+      "description": "Manages machine-level Google Chrome Enterprise and Google Update policy registry settings used by the Chrome ADMX templates.",
+      "category": "Configuration",
+      "platforms": ["windows"],
+      "script_language": "powershell",
+      "scripts": {
+        "windows": "windows/configure-chrome-enterprise-policies.ps1"
+      },
+      "environment_variables": [
+        {
+          "key": "CHROME_POLICIES_JSON",
+          "value": "",
+          "required": false,
+          "description": "JSON object of Chrome policies to write under HKLM:\\SOFTWARE\\Policies\\Google\\Chrome. Scalars become registry values, arrays become numbered list subkeys, objects become compact JSON strings unless using {\"value\":...,\"type\":\"DWord\"}."
+        },
+        {
+          "key": "CHROME_UPDATE_POLICIES_JSON",
+          "value": "",
+          "required": false,
+          "description": "JSON object of Google Update policies to write under HKLM:\\SOFTWARE\\Policies\\Google\\Update."
+        },
+        {
+          "key": "REMOVE_CHROME_POLICIES",
+          "value": "",
+          "required": false,
+          "description": "Comma, semicolon, or newline-separated Chrome policy names to remove."
+        },
+        {
+          "key": "REMOVE_CHROME_UPDATE_POLICIES",
+          "value": "",
+          "required": false,
+          "description": "Comma, semicolon, or newline-separated Google Update policy names to remove."
+        },
+        {
+          "key": "CHROME_HOMEPAGE_URL",
+          "value": "",
+          "required": false,
+          "description": "Sets HomepageLocation and disables HomepageIsNewTabPage."
+        },
+        {
+          "key": "CHROME_STARTUP_URLS",
+          "value": "",
+          "required": false,
+          "description": "Comma, semicolon, or newline-separated startup URLs. Sets RestoreOnStartup and RestoreOnStartupURLs."
+        },
+        {
+          "key": "CHROME_EXTENSION_INSTALL_FORCELIST",
+          "value": "",
+          "required": false,
+          "description": "Comma or newline-separated extension force-install entries, such as extension_id;https://clients2.google.com/service/update2/crx."
+        },
+        {
+          "key": "CHROME_URL_BLOCKLIST",
+          "value": "",
+          "required": false,
+          "description": "Comma, semicolon, or newline-separated URLBlocklist values."
+        },
+        {
+          "key": "CHROME_URL_ALLOWLIST",
+          "value": "",
+          "required": false,
+          "description": "Comma, semicolon, or newline-separated URLAllowlist values."
+        },
+        {
+          "key": "CHROME_BOOKMARK_BAR_ENABLED",
+          "value": "",
+          "required": false,
+          "description": "Sets BookmarkBarEnabled. Use true, false, 1, or 0."
+        },
+        {
+          "key": "CHROME_METRICS_REPORTING_ENABLED",
+          "value": "",
+          "required": false,
+          "description": "Sets MetricsReportingEnabled. Use true, false, 1, or 0."
+        },
+        {
+          "key": "CHROME_PASSWORD_MANAGER_ENABLED",
+          "value": "",
+          "required": false,
+          "description": "Sets PasswordManagerEnabled. Use true, false, 1, or 0."
+        },
+        {
+          "key": "CHROME_SAFE_BROWSING_PROTECTION_LEVEL",
+          "value": "",
+          "required": false,
+          "description": "Sets SafeBrowsingProtectionLevel as a DWORD policy value."
+        },
+        {
+          "key": "CHROME_BROWSER_SIGNIN",
+          "value": "",
+          "required": false,
+          "description": "Sets BrowserSignin as a DWORD policy value."
+        },
+        {
+          "key": "RUN_GPUPDATE",
+          "value": "false",
+          "required": false,
+          "description": "Whether to run gpupdate /target:computer /force after writing policies (true/false)."
+        }
+      ]
+    },
+    {
       "id": "install-firefox",
       "name": "Install Mozilla Firefox",
       "description": "Downloads and silently installs the latest Mozilla Firefox.",
@@ -292,6 +445,347 @@
       "script_language": "powershell",
       "scripts": {
         "windows": "windows/install-7zip.ps1"
+      },
+      "environment_variables": []
+    },
+    {
+      "id": "install-blender",
+      "name": "Install Blender",
+      "description": "Installs the latest Blender release on Windows via WinGet or Linux via the system package manager.",
+      "category": "Software",
+      "platforms": ["windows", "linux"],
+      "script_language": "cross-platform",
+      "scripts": {
+        "windows": "windows/install-blender.ps1",
+        "linux": "linux/install-blender.sh"
+      },
+      "environment_variables": []
+    },
+    {
+      "id": "update-blender",
+      "name": "Update Blender",
+      "description": "Updates Blender to the latest available Windows package version via WinGet.",
+      "category": "Maintenance",
+      "platforms": ["windows"],
+      "script_language": "powershell",
+      "scripts": {
+        "windows": "windows/update-blender.ps1"
+      },
+      "environment_variables": []
+    },
+    {
+      "id": "install-krita",
+      "name": "Install Krita",
+      "description": "Installs the latest Krita release on Windows via WinGet or Linux via the system package manager.",
+      "category": "Software",
+      "platforms": ["windows", "linux"],
+      "script_language": "cross-platform",
+      "scripts": {
+        "windows": "windows/install-krita.ps1",
+        "linux": "linux/install-krita.sh"
+      },
+      "environment_variables": []
+    },
+    {
+      "id": "update-krita",
+      "name": "Update Krita",
+      "description": "Updates Krita to the latest available Windows package version via WinGet.",
+      "category": "Maintenance",
+      "platforms": ["windows"],
+      "script_language": "powershell",
+      "scripts": {
+        "windows": "windows/update-krita.ps1"
+      },
+      "environment_variables": []
+    },
+    {
+      "id": "install-blockbench",
+      "name": "Install Blockbench Desktop",
+      "description": "Installs the latest Blockbench desktop release on Windows via WinGet.",
+      "category": "Software",
+      "platforms": ["windows"],
+      "script_language": "powershell",
+      "scripts": {
+        "windows": "windows/install-blockbench.ps1"
+      },
+      "environment_variables": []
+    },
+    {
+      "id": "update-blockbench",
+      "name": "Update Blockbench Desktop",
+      "description": "Updates Blockbench Desktop to the latest available Windows package version via WinGet.",
+      "category": "Maintenance",
+      "platforms": ["windows"],
+      "script_language": "powershell",
+      "scripts": {
+        "windows": "windows/update-blockbench.ps1"
+      },
+      "environment_variables": []
+    },
+    {
+      "id": "install-obs-studio",
+      "name": "Install OBS Studio",
+      "description": "Installs the latest OBS Studio release on Windows via WinGet or Linux via the system package manager.",
+      "category": "Software",
+      "platforms": ["windows", "linux"],
+      "script_language": "cross-platform",
+      "scripts": {
+        "windows": "windows/install-obs-studio.ps1",
+        "linux": "linux/install-obs-studio.sh"
+      },
+      "environment_variables": []
+    },
+    {
+      "id": "update-obs-studio",
+      "name": "Update OBS Studio",
+      "description": "Updates OBS Studio to the latest available Windows package version via WinGet.",
+      "category": "Maintenance",
+      "platforms": ["windows"],
+      "script_language": "powershell",
+      "scripts": {
+        "windows": "windows/update-obs-studio.ps1"
+      },
+      "environment_variables": []
+    },
+    {
+      "id": "install-capcut",
+      "name": "Install CapCut",
+      "description": "Installs the latest CapCut release on Windows via WinGet.",
+      "category": "Software",
+      "platforms": ["windows"],
+      "script_language": "powershell",
+      "scripts": {
+        "windows": "windows/install-capcut.ps1"
+      },
+      "environment_variables": []
+    },
+    {
+      "id": "update-capcut",
+      "name": "Update CapCut",
+      "description": "Updates CapCut to the latest available Windows package version via WinGet.",
+      "category": "Maintenance",
+      "platforms": ["windows"],
+      "script_language": "powershell",
+      "scripts": {
+        "windows": "windows/update-capcut.ps1"
+      },
+      "environment_variables": []
+    },
+    {
+      "id": "install-mcreator",
+      "name": "Install MCreator",
+      "description": "Installs the latest MCreator release on Windows via WinGet.",
+      "category": "Software",
+      "platforms": ["windows"],
+      "script_language": "powershell",
+      "scripts": {
+        "windows": "windows/install-mcreator.ps1"
+      },
+      "environment_variables": []
+    },
+    {
+      "id": "update-mcreator",
+      "name": "Update MCreator",
+      "description": "Updates MCreator to the latest available Windows package version via WinGet.",
+      "category": "Maintenance",
+      "platforms": ["windows"],
+      "script_language": "powershell",
+      "scripts": {
+        "windows": "windows/update-mcreator.ps1"
+      },
+      "environment_variables": []
+    },
+    {
+      "id": "install-lego-spike",
+      "name": "Install LEGO Education SPIKE",
+      "description": "Installs the latest LEGO Education SPIKE app on Windows via WinGet.",
+      "category": "Software",
+      "platforms": ["windows"],
+      "script_language": "powershell",
+      "scripts": {
+        "windows": "windows/install-lego-spike.ps1"
+      },
+      "environment_variables": []
+    },
+    {
+      "id": "update-lego-spike",
+      "name": "Update LEGO Education SPIKE",
+      "description": "Updates LEGO Education SPIKE to the latest available Windows package version via WinGet.",
+      "category": "Maintenance",
+      "platforms": ["windows"],
+      "script_language": "powershell",
+      "scripts": {
+        "windows": "windows/update-lego-spike.ps1"
+      },
+      "environment_variables": []
+    },
+    {
+      "id": "install-windows-sound-recorder",
+      "name": "Install Windows Sound Recorder",
+      "description": "Installs Windows Sound Recorder from the Microsoft Store via WinGet.",
+      "category": "Software",
+      "platforms": ["windows"],
+      "script_language": "powershell",
+      "scripts": {
+        "windows": "windows/install-windows-sound-recorder.ps1"
+      },
+      "environment_variables": []
+    },
+    {
+      "id": "update-windows-sound-recorder",
+      "name": "Update Windows Sound Recorder",
+      "description": "Updates Windows Sound Recorder from the Microsoft Store via WinGet.",
+      "category": "Maintenance",
+      "platforms": ["windows"],
+      "script_language": "powershell",
+      "scripts": {
+        "windows": "windows/update-windows-sound-recorder.ps1"
+      },
+      "environment_variables": []
+    },
+    {
+      "id": "install-xbox-gamebar",
+      "name": "Install Xbox Game Bar",
+      "description": "Installs Xbox Game Bar from the Microsoft Store via WinGet.",
+      "category": "Software",
+      "platforms": ["windows"],
+      "script_language": "powershell",
+      "scripts": {
+        "windows": "windows/install-xbox-gamebar.ps1"
+      },
+      "environment_variables": []
+    },
+    {
+      "id": "update-xbox-gamebar",
+      "name": "Update Xbox Game Bar",
+      "description": "Updates Xbox Game Bar from the Microsoft Store via WinGet.",
+      "category": "Maintenance",
+      "platforms": ["windows"],
+      "script_language": "powershell",
+      "scripts": {
+        "windows": "windows/update-xbox-gamebar.ps1"
+      },
+      "environment_variables": []
+    },
+    {
+      "id": "install-microsoft-photos",
+      "name": "Install Microsoft Photos",
+      "description": "Installs Microsoft Photos from the Microsoft Store via WinGet.",
+      "category": "Software",
+      "platforms": ["windows"],
+      "script_language": "powershell",
+      "scripts": {
+        "windows": "windows/install-microsoft-photos.ps1"
+      },
+      "environment_variables": []
+    },
+    {
+      "id": "update-microsoft-photos",
+      "name": "Update Microsoft Photos",
+      "description": "Updates Microsoft Photos from the Microsoft Store via WinGet.",
+      "category": "Maintenance",
+      "platforms": ["windows"],
+      "script_language": "powershell",
+      "scripts": {
+        "windows": "windows/update-microsoft-photos.ps1"
+      },
+      "environment_variables": []
+    },
+    {
+      "id": "install-mit-app-inventor-emulator",
+      "name": "Install MIT App Inventor Emulator Setup",
+      "description": "Downloads and silently installs the MIT App Inventor emulator and USB setup tools.",
+      "category": "Software",
+      "platforms": ["windows"],
+      "script_language": "powershell",
+      "scripts": {
+        "windows": "windows/install-mit-app-inventor-emulator.ps1"
+      },
+      "environment_variables": []
+    },
+    {
+      "id": "update-mit-app-inventor-emulator",
+      "name": "Update MIT App Inventor Emulator Setup",
+      "description": "Reinstalls the latest MIT App Inventor emulator and USB setup tools.",
+      "category": "Maintenance",
+      "platforms": ["windows"],
+      "script_language": "powershell",
+      "scripts": {
+        "windows": "windows/update-mit-app-inventor-emulator.ps1"
+      },
+      "environment_variables": []
+    },
+    {
+      "id": "install-makecode-arcade-shortcut",
+      "name": "Create Web App Shortcut",
+      "description": "Creates all-users Desktop and Start Menu shortcuts for a configurable web app. Defaults to MakeCode Arcade.",
+      "category": "Software",
+      "platforms": ["windows"],
+      "script_language": "powershell",
+      "scripts": {
+        "windows": "windows/install-makecode-arcade-shortcut.ps1"
+      },
+      "environment_variables": [
+        {
+          "key": "SHORTCUT_NAME",
+          "value": "MakeCode Arcade",
+          "required": false,
+          "description": "Name to use for the Desktop and Start Menu shortcut"
+        },
+        {
+          "key": "SHORTCUT_URL",
+          "value": "https://arcade.makecode.com/",
+          "required": false,
+          "description": "Absolute http or https URL the shortcut should open"
+        }
+      ]
+    },
+    {
+      "id": "update-makecode-arcade-shortcut",
+      "name": "Refresh Web App Shortcut",
+      "description": "Refreshes all-users Desktop and Start Menu shortcuts for a configurable web app. Defaults to MakeCode Arcade.",
+      "category": "Maintenance",
+      "platforms": ["windows"],
+      "script_language": "powershell",
+      "scripts": {
+        "windows": "windows/update-makecode-arcade-shortcut.ps1"
+      },
+      "environment_variables": [
+        {
+          "key": "SHORTCUT_NAME",
+          "value": "MakeCode Arcade",
+          "required": false,
+          "description": "Name to use for the Desktop and Start Menu shortcut"
+        },
+        {
+          "key": "SHORTCUT_URL",
+          "value": "https://arcade.makecode.com/",
+          "required": false,
+          "description": "Absolute http or https URL the shortcut should open"
+        }
+      ]
+    },
+    {
+      "id": "install-roblox-studio",
+      "name": "Install Roblox Studio",
+      "description": "Installs the latest Roblox Studio release on Windows via WinGet.",
+      "category": "Software",
+      "platforms": ["windows"],
+      "script_language": "powershell",
+      "scripts": {
+        "windows": "windows/install-roblox-studio.ps1"
+      },
+      "environment_variables": []
+    },
+    {
+      "id": "update-roblox-studio",
+      "name": "Update Roblox Studio",
+      "description": "Updates Roblox Studio to the latest available Windows package version via WinGet.",
+      "category": "Maintenance",
+      "platforms": ["windows"],
+      "script_language": "powershell",
+      "scripts": {
+        "windows": "windows/update-roblox-studio.ps1"
       },
       "environment_variables": []
     },
