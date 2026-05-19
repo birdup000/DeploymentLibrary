@@ -388,6 +388,106 @@ function Get-BlenderOfficialChecksum {
     return $null
 }
 
+function Format-ByteSize {
+    param([long]$Bytes)
+
+    if ($Bytes -ge 1GB) {
+        return "{0:N1} GB" -f ($Bytes / 1GB)
+    }
+
+    if ($Bytes -ge 1MB) {
+        return "{0:N1} MB" -f ($Bytes / 1MB)
+    }
+
+    if ($Bytes -ge 1KB) {
+        return "{0:N1} KB" -f ($Bytes / 1KB)
+    }
+
+    return "$Bytes bytes"
+}
+
+function Save-FileWithProgress {
+    param(
+        [string]$Uri,
+        [string]$OutFile,
+        [int]$RetryCount = 3
+    )
+
+    $lastError = $null
+    for ($attempt = 1; $attempt -le $RetryCount; $attempt++) {
+        if ($attempt -gt 1) {
+            Write-Host "Retrying download (attempt $attempt of $RetryCount)..."
+            Start-Sleep -Seconds 5
+        }
+
+        try {
+            $request = [System.Net.HttpWebRequest]::Create($Uri)
+            $request.UserAgent = "XTS DeploymentLibrary"
+            $request.AllowAutoRedirect = $true
+            $request.Timeout = 30000
+            $request.ReadWriteTimeout = 30000
+
+            $response = $request.GetResponse()
+            $responseStream = $response.GetResponseStream()
+            $fileStream = [System.IO.File]::Create($OutFile)
+
+            try {
+                $buffer = New-Object byte[] 1048576
+                $totalBytes = [long]$response.ContentLength
+                $downloadedBytes = [long]0
+                $lastReportTime = Get-Date
+                $lastReportBytes = [long]0
+
+                if ($totalBytes -gt 0) {
+                    Write-Host "Download size: $(Format-ByteSize -Bytes $totalBytes)"
+                }
+
+                while (($bytesRead = $responseStream.Read($buffer, 0, $buffer.Length)) -gt 0) {
+                    $fileStream.Write($buffer, 0, $bytesRead)
+                    $downloadedBytes += $bytesRead
+
+                    $now = Get-Date
+                    if ((($now - $lastReportTime).TotalSeconds -ge 10) -or (($downloadedBytes - $lastReportBytes) -ge 52428800)) {
+                        if ($totalBytes -gt 0) {
+                            $percent = [math]::Round(($downloadedBytes / $totalBytes) * 100, 1)
+                            Write-Host "Downloaded $(Format-ByteSize -Bytes $downloadedBytes) of $(Format-ByteSize -Bytes $totalBytes) ($percent%)."
+                        }
+                        else {
+                            Write-Host "Downloaded $(Format-ByteSize -Bytes $downloadedBytes)."
+                        }
+
+                        $lastReportTime = $now
+                        $lastReportBytes = $downloadedBytes
+                    }
+                }
+
+                Write-Host "Downloaded $(Format-ByteSize -Bytes $downloadedBytes)."
+                return
+            }
+            finally {
+                if ($fileStream) {
+                    $fileStream.Dispose()
+                }
+
+                if ($responseStream) {
+                    $responseStream.Dispose()
+                }
+
+                if ($response) {
+                    $response.Dispose()
+                }
+            }
+        }
+        catch {
+            $lastError = $_
+            Remove-Item -Path $OutFile -Force -ErrorAction SilentlyContinue
+            Write-Warning "Download attempt $attempt failed. $($_.Exception.Message)"
+        }
+    }
+
+    throw "Failed to download $Uri after $RetryCount attempts. $($lastError.Exception.Message)"
+}
+
 function Install-BlenderFromOfficialMsi {
     $architecture = Get-BlenderWindowsArchitecture
     $installer = Get-BlenderOfficialInstaller -Architecture $architecture
@@ -397,7 +497,7 @@ function Install-BlenderFromOfficialMsi {
     try {
         $installerPath = Join-Path $tempDirectory $installer.FileName
         Write-Host "Downloading $packageName $($installer.Version) for Windows $architecture..."
-        Invoke-WebRequest -Uri $installer.InstallerUrl -OutFile $installerPath -UseBasicParsing
+        Save-FileWithProgress -Uri $installer.InstallerUrl -OutFile $installerPath
 
         if (-not (Test-Path $installerPath)) {
             throw "Downloaded Blender installer was not found at $installerPath."
