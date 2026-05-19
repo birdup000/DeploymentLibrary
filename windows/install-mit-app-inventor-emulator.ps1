@@ -4,7 +4,27 @@ $ErrorActionPreference = 'Stop'
 
 $packageName = "MIT App Inventor Emulator Setup"
 $setupLink = "https://appinv.us/aisetup_windows"
-$installerPath = Join-Path $env:TEMP "MIT_App_Inventor_Tools_win_setup.exe"
+$installerFileName = "MIT_App_Inventor_Tools_win_setup.exe"
+$tempDirectory = Join-Path ([System.IO.Path]::GetTempPath()) ("MITAppInventor-" + [guid]::NewGuid().ToString())
+$installerPath = Join-Path $tempDirectory $installerFileName
+
+function Wait-AppInventorSetupProcess {
+    param([int]$TimeoutSeconds = 600)
+
+    $processName = [System.IO.Path]::GetFileNameWithoutExtension($installerFileName)
+    $processes = @(Get-Process -Name $processName -ErrorAction SilentlyContinue)
+    if ($processes.Count -eq 0) {
+        return
+    }
+
+    Write-Host "Waiting for an existing $packageName installer process to finish..."
+    try {
+        $processes | Wait-Process -Timeout $TimeoutSeconds -ErrorAction Stop
+    }
+    catch {
+        throw "Timed out waiting for an existing $packageName installer process to finish."
+    }
+}
 
 function Get-AppInventorDownloadUrl {
     $request = [System.Net.WebRequest]::Create($setupLink)
@@ -86,6 +106,9 @@ function New-WebAppStartMenuShortcut {
 }
 
 try {
+    Wait-AppInventorSetupProcess
+    New-Item -Path $tempDirectory -ItemType Directory -Force | Out-Null
+
     $installerUrl = Get-AppInventorDownloadUrl
 
     Write-Host "Downloading $packageName..."
@@ -102,5 +125,5 @@ try {
     Write-Host "A logout or reboot may be required before aiStarter is available for all users."
 }
 finally {
-    Remove-Item $installerPath -Force -ErrorAction SilentlyContinue
+    Remove-Item $tempDirectory -Recurse -Force -ErrorAction SilentlyContinue
 }
