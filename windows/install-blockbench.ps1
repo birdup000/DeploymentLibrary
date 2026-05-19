@@ -15,6 +15,7 @@ $executableCandidatePaths = @(
 )
 $appDisplayNamePatterns = @("Blockbench*")
 $fallbackAppUserModelId = ""
+$alreadyInstalledNoUpgradeExitCodes = @(-1978335189)
 
 $source = "winget"
 
@@ -340,6 +341,12 @@ function Test-BlockbenchInstalled {
     return -not [string]::IsNullOrWhiteSpace($appUserModelId)
 }
 
+function Test-WingetAlreadyInstalledNoUpgradeExitCode {
+    param([int]$ExitCode)
+
+    return $alreadyInstalledNoUpgradeExitCodes -contains $ExitCode
+}
+
 $winget = Get-WingetPath
 $isInstalled = Test-BlockbenchInstalled -WingetPath $winget -PackageId $packageId
 
@@ -353,7 +360,7 @@ else {
     & $winget @arguments
     $installExitCode = $LASTEXITCODE
     if ($installExitCode -ne 0) {
-        if (Test-BlockbenchInstalled -WingetPath $winget -PackageId $packageId) {
+        if ((Test-WingetAlreadyInstalledNoUpgradeExitCode -ExitCode $installExitCode) -or (Test-BlockbenchInstalled -WingetPath $winget -PackageId $packageId)) {
             Write-Host "$packageName is installed. Continuing to ensure Start Menu shortcut."
         }
         else {
