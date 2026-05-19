@@ -305,14 +305,64 @@ function Ensure-StartMenuShortcut {
     Write-Warning "Could not create a Start Menu shortcut for $ShortcutName because no installed executable or app identifier was found."
 }
 
-$winget = Get-WingetPath
-$arguments = @("install", "--id", $packageId, "--exact", "--source", $source, "--silent", "--accept-package-agreements", "--accept-source-agreements")
+function Test-WingetPackageInstalled {
+    param(
+        [string]$WingetPath,
+        [string]$PackageId
+    )
 
-Write-Host "Installing $packageName..."
-& $winget @arguments
-if ($LASTEXITCODE -ne 0) {
-    throw "$packageName install failed with exit code $LASTEXITCODE."
+    $listArguments = @("list", "--id", $PackageId, "--exact")
+    $output = & $WingetPath @listArguments 2>&1
+    $exitCode = $LASTEXITCODE
+    if ($exitCode -ne 0) {
+        return $false
+    }
+
+    $outputText = $output | Out-String
+    return $outputText -match [regex]::Escape($PackageId)
 }
 
-Write-Host "$packageName installed successfully."
+function Test-BlockbenchInstalled {
+    param(
+        [string]$WingetPath,
+        [string]$PackageId
+    )
+
+    if (Test-WingetPackageInstalled -WingetPath $WingetPath -PackageId $PackageId) {
+        return $true
+    }
+
+    if (Find-InstalledExecutable -ExecutableNames $executableNames -CandidatePaths $executableCandidatePaths) {
+        return $true
+    }
+
+    $appUserModelId = Get-InstalledAppUserModelId -DisplayNamePatterns $appDisplayNamePatterns
+    return -not [string]::IsNullOrWhiteSpace($appUserModelId)
+}
+
+$winget = Get-WingetPath
+$isInstalled = Test-BlockbenchInstalled -WingetPath $winget -PackageId $packageId
+
+if ($isInstalled) {
+    Write-Host "$packageName is already installed."
+}
+else {
+    $arguments = @("install", "--id", $packageId, "--exact", "--source", $source, "--silent", "--accept-package-agreements", "--accept-source-agreements")
+
+    Write-Host "Installing $packageName..."
+    & $winget @arguments
+    $installExitCode = $LASTEXITCODE
+    if ($installExitCode -ne 0) {
+        if (Test-BlockbenchInstalled -WingetPath $winget -PackageId $packageId) {
+            Write-Host "$packageName is installed. Continuing to ensure Start Menu shortcut."
+        }
+        else {
+            throw "$packageName install failed with exit code $installExitCode."
+        }
+    }
+    else {
+        Write-Host "$packageName installed successfully."
+    }
+}
+
 Ensure-StartMenuShortcut -ShortcutName $startMenuShortcutName -SearchPatterns $shortcutSearchPatterns -ExecutableNames $executableNames -CandidatePaths $executableCandidatePaths -AppDisplayNamePatterns $appDisplayNamePatterns -FallbackAppUserModelId $fallbackAppUserModelId

@@ -304,14 +304,57 @@ function Ensure-StartMenuShortcut {
     Write-Warning "Could not create a Start Menu shortcut for $ShortcutName because no installed executable or app identifier was found."
 }
 
+function Test-WingetPackageInstalled {
+    param(
+        [string]$WingetPath,
+        [string]$PackageId
+    )
+
+    $listArguments = @("list", "--id", $PackageId, "--exact")
+    $output = & $WingetPath @listArguments 2>&1
+    $exitCode = $LASTEXITCODE
+    if ($exitCode -ne 0) {
+        return $false
+    }
+
+    $outputText = $output | Out-String
+    return $outputText -match [regex]::Escape($PackageId)
+}
+
+function Test-BlockbenchInstalled {
+    param(
+        [string]$WingetPath,
+        [string]$PackageId
+    )
+
+    if (Test-WingetPackageInstalled -WingetPath $WingetPath -PackageId $PackageId) {
+        return $true
+    }
+
+    if (Find-InstalledExecutable -ExecutableNames $executableNames -CandidatePaths $executableCandidatePaths) {
+        return $true
+    }
+
+    $appUserModelId = Get-InstalledAppUserModelId -DisplayNamePatterns $appDisplayNamePatterns
+    return -not [string]::IsNullOrWhiteSpace($appUserModelId)
+}
+
 $winget = Get-WingetPath
 $arguments = @("upgrade", "--id", $packageId, "--exact", "--source", $source, "--silent", "--accept-package-agreements", "--accept-source-agreements")
 
 Write-Host "Updating $packageName..."
 & $winget @arguments
-if ($LASTEXITCODE -ne 0) {
-    throw "$packageName update failed with exit code $LASTEXITCODE."
+$updateExitCode = $LASTEXITCODE
+if ($updateExitCode -ne 0) {
+    if (Test-BlockbenchInstalled -WingetPath $winget -PackageId $packageId) {
+        Write-Host "$packageName is installed and no update was applied. Continuing to ensure Start Menu shortcut."
+    }
+    else {
+        throw "$packageName update failed with exit code $updateExitCode."
+    }
+}
+else {
+    Write-Host "$packageName update completed successfully."
 }
 
-Write-Host "$packageName update completed successfully."
 Ensure-StartMenuShortcut -ShortcutName $startMenuShortcutName -SearchPatterns $shortcutSearchPatterns -ExecutableNames $executableNames -CandidatePaths $executableCandidatePaths -AppDisplayNamePatterns $appDisplayNamePatterns -FallbackAppUserModelId $fallbackAppUserModelId
