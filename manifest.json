@@ -451,7 +451,7 @@
     {
       "id": "install-blender",
       "name": "Install Blender",
-      "description": "Installs the latest Blender release on Windows via WinGet or Linux via the system package manager.",
+      "description": "Installs the latest Blender release on Windows via WinGet with an official MSI fallback, or on Linux via the system package manager.",
       "category": "Software",
       "platforms": ["windows", "linux"],
       "script_language": "cross-platform",
