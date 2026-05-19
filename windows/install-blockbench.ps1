@@ -13,7 +13,7 @@ $executableCandidatePaths = @(
     "$env:LOCALAPPDATA\Programs\Blockbench\Blockbench.exe",
     "$env:SystemDrive\Users\*\AppData\Local\Programs\Blockbench\Blockbench.exe"
 )
-$appDisplayNamePatterns = @()
+$appDisplayNamePatterns = @("Blockbench*")
 $fallbackAppUserModelId = ""
 
 $source = "winget"
