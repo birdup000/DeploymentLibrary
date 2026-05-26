@@ -47,7 +47,8 @@ try {
 
     Write-Host "Installing $packageName..."
     $process = Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/qn", "/norestart" -Wait -NoNewWindow -PassThru
-    if ($process.ExitCode -ne 0) {
+    # 3010 = ERROR_SUCCESS_REBOOT_REQUIRED (install succeeded; reboot deferred by /norestart).
+    if ($process.ExitCode -notin @(0, 3010)) {
         throw "$packageName installer failed with exit code $($process.ExitCode)."
     }
 
