@@ -7,9 +7,10 @@ $installerUrl = "https://dl.google.com/chrome/install/GoogleChromeStandaloneEnte
 $policyTemplatesUrl = "https://dl.google.com/dl/edgedl/chrome/policy/policy_templates.zip"
 $installPolicyTemplates = if ($env:INSTALL_POLICY_TEMPLATES -eq "false") { $false } else { $true }
 $policyTemplateLanguage = if ([string]::IsNullOrWhiteSpace($env:POLICY_TEMPLATE_LANGUAGE)) { "en-US" } else { $env:POLICY_TEMPLATE_LANGUAGE.Trim() }
-$installerPath = Join-Path $env:TEMP "GoogleChromeStandaloneEnterprise64.msi"
-$policyZipPath = Join-Path $env:TEMP "chrome_policy_templates.zip"
-$extractPath = Join-Path $env:TEMP "chrome_policy_templates"
+$tempDirectory = Join-Path ([System.IO.Path]::GetTempPath()) ("ChromeEnterprise-" + [guid]::NewGuid().ToString())
+$installerPath = Join-Path $tempDirectory "GoogleChromeStandaloneEnterprise64.msi"
+$policyZipPath = Join-Path $tempDirectory "chrome_policy_templates.zip"
+$extractPath = Join-Path $tempDirectory "chrome_policy_templates"
 
 function Install-ChromePolicyTemplates {
     Write-Host "Downloading Chrome Enterprise policy templates..."
@@ -42,6 +43,8 @@ function Install-ChromePolicyTemplates {
 }
 
 try {
+    New-Item -Path $tempDirectory -ItemType Directory -Force | Out-Null
+
     Write-Host "Downloading $packageName..."
     Invoke-WebRequest -Uri $installerUrl -OutFile $installerPath -UseBasicParsing
 
@@ -59,7 +62,5 @@ try {
     Write-Host "$packageName installed successfully."
 }
 finally {
-    Remove-Item $installerPath -Force -ErrorAction SilentlyContinue
-    Remove-Item $policyZipPath -Force -ErrorAction SilentlyContinue
-    Remove-Item $extractPath -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item $tempDirectory -Recurse -Force -ErrorAction SilentlyContinue
 }
