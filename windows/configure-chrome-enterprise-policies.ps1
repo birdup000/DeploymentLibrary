@@ -104,7 +104,11 @@ function Convert-RegistryValue {
             return [string[]]@([string]$Value)
         }
         default {
-            return [string]$Value
+            if ($Value -is [string]) {
+                return $Value
+            }
+
+            return ($Value | ConvertTo-Json -Compress -Depth 20)
         }
     }
 }
@@ -148,6 +152,63 @@ function Set-PolicyList {
     Write-Host "Set list policy $Name with $($Values.Count) value(s)."
 }
 
+function Test-RegistrySubKeyPolicyMapValue {
+    param([object]$Value)
+
+    if ($null -eq $Value) {
+        return $true
+    }
+
+    if ($Value -is [System.Collections.IDictionary] -and $Value.ContainsKey("value")) {
+        return $true
+    }
+
+    if ($Value -is [string] -or $Value -is [bool] -or $Value -is [byte] -or $Value -is [int16] -or $Value -is [int32] -or $Value -is [int64]) {
+        return $true
+    }
+
+    if ($Value -is [System.Array]) {
+        foreach ($item in $Value) {
+            if ($item -isnot [string]) {
+                return $false
+            }
+        }
+
+        return $true
+    }
+
+    if ($Value -is [System.Collections.IDictionary]) {
+        foreach ($entry in $Value.GetEnumerator()) {
+            if (-not (Test-RegistrySubKeyPolicyMapValue -Value $entry.Value)) {
+                return $false
+            }
+        }
+
+        return $true
+    }
+
+    return $false
+}
+
+function Set-PolicySubKeyMap {
+    param(
+        [string]$BasePath,
+        [string]$Name,
+        [System.Collections.IDictionary]$Map
+    )
+
+    Remove-PolicyValue -BasePath $BasePath -Name $Name
+
+    $childPath = Join-Path $BasePath $Name
+    Ensure-RegistryKey -Path $childPath
+
+    foreach ($entry in $Map.GetEnumerator()) {
+        Set-PolicyValue -BasePath $childPath -Name $entry.Key -Value $entry.Value
+    }
+
+    Write-Host "Set policy tree $Name."
+}
+
 function Set-PolicyValue {
     param(
         [string]$BasePath,
@@ -158,8 +219,36 @@ function Set-PolicyValue {
 
     Ensure-RegistryKey -Path $BasePath
 
+    if ($null -eq $Value) {
+        Remove-PolicyValue -BasePath $BasePath -Name $Name
+        Write-Host "Removed policy $Name."
+        return
+    }
+
     if ($Value -is [System.Array]) {
-        Set-PolicyList -BasePath $BasePath -Name $Name -Values $Value
+        if ($Value.Count -eq 0) {
+            Remove-PolicyValue -BasePath $BasePath -Name $Name
+            Write-Host "Cleared list policy $Name."
+            return
+        }
+
+        $containsOnlyStrings = $true
+        foreach ($item in $Value) {
+            if ($item -isnot [string]) {
+                $containsOnlyStrings = $false
+                break
+            }
+        }
+
+        if ($containsOnlyStrings) {
+            Set-PolicyList -BasePath $BasePath -Name $Name -Values $Value
+            return
+        }
+
+        Remove-PolicyValue -BasePath $BasePath -Name $Name
+        $jsonValue = $Value | ConvertTo-Json -Compress -Depth 20
+        New-ItemProperty -Path $BasePath -Name $Name -Value $jsonValue -PropertyType String -Force | Out-Null
+        Write-Host "Set policy $Name."
         return
     }
 
@@ -170,6 +259,11 @@ function Set-PolicyValue {
     }
 
     if ($Value -is [System.Collections.IDictionary]) {
+        if (Test-RegistrySubKeyPolicyMapValue -Value $Value) {
+            Set-PolicySubKeyMap -BasePath $BasePath -Name $Name -Map $Value
+            return
+        }
+
         $Value = $Value | ConvertTo-Json -Compress -Depth 20
         $ExplicitType = "String"
     }
@@ -193,9 +287,25 @@ function Set-PolicyObject {
         return
     }
 
-    $policies = ConvertTo-PolicyHashtable (ConvertFrom-Json -InputObject $Json)
+    try {
+        $parsedPolicies = ConvertFrom-Json -InputObject $Json
+    }
+    catch {
+        throw "Invalid policy JSON: $($_.Exception.Message)"
+    }
+
+    $policies = ConvertTo-PolicyHashtable $parsedPolicies
     foreach ($policyName in $policies.Keys) {
         Set-PolicyValue -BasePath $BasePath -Name $policyName -Value $policies[$policyName]
+    }
+}
+
+function Invoke-ComputerPolicyUpdate {
+    Write-Host "Running gpupdate for computer policies..."
+    & gpupdate.exe /target:computer /force 2>&1 | Out-Host
+
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "gpupdate exited with code $LASTEXITCODE. Registry policies were still written. Policy refresh may require domain membership or a reboot."
     }
 }
 
@@ -254,7 +364,7 @@ if ($startupUrls.Count -gt 0) {
     Set-PolicyList -BasePath $chromePolicyPath -Name "RestoreOnStartupURLs" -Values $startupUrls
 }
 
-$extensionForceList = Split-PolicyList -Value $env:CHROME_EXTENSION_INSTALL_FORCELIST -SeparatorPattern '[\r\n,]'
+$extensionForceList = Split-PolicyList -Value $env:CHROME_EXTENSION_INSTALL_FORCELIST
 if ($extensionForceList.Count -gt 0) {
     Set-PolicyList -BasePath $chromePolicyPath -Name "ExtensionInstallForcelist" -Values $extensionForceList
 }
@@ -279,9 +389,9 @@ Set-PolicyObject -BasePath $chromePolicyPath -Json $env:CHROME_POLICIES_JSON
 Set-PolicyObject -BasePath $googleUpdatePolicyPath -Json $env:CHROME_UPDATE_POLICIES_JSON
 
 if ($env:RUN_GPUPDATE -eq "true") {
-    Write-Host "Running gpupdate for computer policies..."
-    gpupdate.exe /target:computer /force | Out-Host
+    Invoke-ComputerPolicyUpdate
 }
 
 Write-Host "Chrome Enterprise policy configuration complete."
+Write-Host "Registry policies were written under $chromePolicyPath and $googleUpdatePolicyPath."
 Write-Host "Review active browser policy state at chrome://policy after Chrome refreshes policies."
