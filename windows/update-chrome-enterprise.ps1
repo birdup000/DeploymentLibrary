@@ -108,6 +108,54 @@ function Save-FileWithProgress {
     throw "Failed to download $Uri after $RetryCount attempts. $($lastError.Exception.Message)"
 }
 
+function Enter-DeploymentMutex {
+    param(
+        [System.Threading.Mutex]$Mutex,
+        [string]$Activity,
+        [int]$TimeoutMinutes = 45
+    )
+
+    $deadline = (Get-Date).AddMinutes($TimeoutMinutes)
+    while ((Get-Date) -lt $deadline) {
+        if ($Mutex.WaitOne([TimeSpan]::FromSeconds(15))) {
+            return $true
+        }
+
+        Write-Host "$Activity is waiting for another Chrome Enterprise deployment to finish..."
+    }
+
+    return $false
+}
+
+function Invoke-ChromeEnterpriseMsiInstall {
+    param(
+        [string]$InstallerPath,
+        [string]$Verb = "Installing",
+        [int]$MaxAttempts = 20
+    )
+
+    $successExitCodes = @(0, 3010)
+
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+        Write-Host "$Verb $packageName (attempt $attempt of $MaxAttempts)..."
+        $process = Start-Process msiexec.exe -ArgumentList "/i", "`"$InstallerPath`"", "/qn", "/norestart" -Wait -NoNewWindow -PassThru
+
+        if ($process.ExitCode -in $successExitCodes) {
+            return
+        }
+
+        if ($process.ExitCode -eq 1618) {
+            Write-Host "Windows Installer is busy with another installation (exit 1618). Waiting 30 seconds..."
+            Start-Sleep -Seconds 30
+            continue
+        }
+
+        throw "$packageName update failed with exit code $($process.ExitCode)."
+    }
+
+    throw "$packageName update failed after $MaxAttempts attempts because Windows Installer remained busy."
+}
+
 function Install-ChromePolicyTemplates {
     Write-Host "Downloading Chrome Enterprise policy templates..."
     Remove-Item $extractPath -Recurse -Force -ErrorAction SilentlyContinue
@@ -138,18 +186,23 @@ function Install-ChromePolicyTemplates {
     Write-Host "Chrome Enterprise policy templates refreshed in $policyDefinitionsPath."
 }
 
+$deploymentMutex = $null
+$deploymentMutexAcquired = $false
+
 try {
+    $deploymentMutex = New-Object System.Threading.Mutex($false, "Global\DeploymentLibrary-ChromeEnterprise-Install")
+    Write-Host "Waiting for any other Chrome Enterprise deployment to finish..."
+    $deploymentMutexAcquired = Enter-DeploymentMutex -Mutex $deploymentMutex -Activity "Chrome Enterprise update"
+    if (-not $deploymentMutexAcquired) {
+        throw "Timed out waiting for another Chrome Enterprise deployment to finish."
+    }
+
     New-Item -Path $tempDirectory -ItemType Directory -Force | Out-Null
 
     Write-Host "Downloading latest $packageName..."
     Save-FileWithProgress -Uri $installerUrl -OutFile $installerPath -Activity "Chrome Enterprise MSI download"
 
-    Write-Host "Updating $packageName..."
-    $process = Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/qn", "/norestart" -Wait -NoNewWindow -PassThru
-    # 3010 = ERROR_SUCCESS_REBOOT_REQUIRED (install succeeded; reboot deferred by /norestart).
-    if ($process.ExitCode -notin @(0, 3010)) {
-        throw "$packageName update failed with exit code $($process.ExitCode)."
-    }
+    Invoke-ChromeEnterpriseMsiInstall -InstallerPath $installerPath -Verb "Updating"
 
     if ($installPolicyTemplates) {
         Install-ChromePolicyTemplates
@@ -158,5 +211,13 @@ try {
     Write-Host "$packageName update completed successfully."
 }
 finally {
+    if ($deploymentMutexAcquired) {
+        $deploymentMutex.ReleaseMutex() | Out-Null
+    }
+
+    if ($deploymentMutex) {
+        $deploymentMutex.Dispose()
+    }
+
     Remove-Item $tempDirectory -Recurse -Force -ErrorAction SilentlyContinue
 }
