@@ -5,13 +5,14 @@ $ErrorActionPreference = 'Stop'
 $packageName = "Blender"
 $packageId = "BlenderFoundation.Blender"
 $startMenuShortcutName = "Blender"
+$startMenuProgramsSubfolder = "Blender Foundation"
 $shortcutSearchPatterns = @("Blender*.lnk")
 $executableNames = @("blender.exe")
 $executableCandidatePaths = @(
     "$env:ProgramFiles\Blender Foundation\Blender *\blender.exe",
     "${env:ProgramFiles(x86)}\Blender Foundation\Blender *\blender.exe"
 )
-$appDisplayNamePatterns = @()
+$appDisplayNamePatterns = @("Blender*")
 $fallbackAppUserModelId = ""
 
 $source = "winget"
@@ -228,10 +229,15 @@ function New-StartMenuShortcut {
         [string]$TargetPath,
         [string]$Arguments = "",
         [string]$WorkingDirectory = "",
-        [string]$IconLocation = ""
+        [string]$IconLocation = "",
+        [string]$ProgramsSubfolder = ""
     )
 
     $programsDirectory = Get-CommonProgramsDirectory
+    if (-not [string]::IsNullOrWhiteSpace($ProgramsSubfolder)) {
+        $programsDirectory = Join-Path $programsDirectory $ProgramsSubfolder
+    }
+
     New-Item -Path $programsDirectory -ItemType Directory -Force | Out-Null
 
     $shortcutPath = Join-Path $programsDirectory "$ShortcutName.lnk"
@@ -261,6 +267,104 @@ function New-StartMenuShortcut {
     return $shortcutPath
 }
 
+function Get-BlenderInstallDirectory {
+    $registryRoots = @(
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*",
+        "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*"
+    )
+
+    $bestMatch = $null
+    foreach ($registryRoot in $registryRoots) {
+        $entries = Get-ChildItem -Path $registryRoot -ErrorAction SilentlyContinue
+        foreach ($entry in $entries) {
+            $properties = Get-ItemProperty -Path $entry.PSPath -ErrorAction SilentlyContinue
+            if (-not $properties -or [string]::IsNullOrWhiteSpace($properties.DisplayName) -or $properties.DisplayName -notlike "Blender*") {
+                continue
+            }
+
+            $installLocation = ($properties.InstallLocation -as [string])
+            if ([string]::IsNullOrWhiteSpace($installLocation)) {
+                continue
+            }
+
+            $installLocation = [Environment]::ExpandEnvironmentVariables($installLocation.Trim().TrimEnd('\'))
+            if (-not (Test-Path $installLocation)) {
+                continue
+            }
+
+            if (-not $bestMatch -or $properties.DisplayName.Length -gt $bestMatch.DisplayName.Length) {
+                $bestMatch = [PSCustomObject]@{
+                    DisplayName = $properties.DisplayName
+                    InstallLocation = $installLocation
+                }
+            }
+        }
+    }
+
+    if ($bestMatch) {
+        return $bestMatch.InstallLocation
+    }
+
+    return $null
+}
+
+function Get-BlenderExecutableCandidatePaths {
+    $candidatePaths = [System.Collections.Generic.List[string]]::new()
+    foreach ($path in @($executableCandidatePaths)) {
+        if (-not [string]::IsNullOrWhiteSpace($path)) {
+            [void]$candidatePaths.Add($path)
+        }
+    }
+
+    $installDirectory = Get-BlenderInstallDirectory
+    if ($installDirectory) {
+        [void]$candidatePaths.Add((Join-Path $installDirectory "blender.exe"))
+    }
+
+    return $candidatePaths | Select-Object -Unique
+}
+
+function Test-ApplicationDetected {
+    $candidatePaths = Get-BlenderExecutableCandidatePaths
+    if (Find-InstalledExecutable -ExecutableNames $executableNames -CandidatePaths $candidatePaths) {
+        return $true
+    }
+
+    $appUserModelId = Get-InstalledAppUserModelId -DisplayNamePatterns $appDisplayNamePatterns
+    return -not [string]::IsNullOrWhiteSpace($appUserModelId)
+}
+
+function New-DesktopShortcut {
+    param(
+        [string]$ShortcutName,
+        [string]$TargetPath,
+        [string]$IconLocation = ""
+    )
+
+    $desktopDirectory = [Environment]::GetFolderPath("CommonDesktopDirectory")
+    if ([string]::IsNullOrWhiteSpace($desktopDirectory)) {
+        $desktopDirectory = Join-Path $env:PUBLIC "Desktop"
+    }
+
+    New-Item -Path $desktopDirectory -ItemType Directory -Force | Out-Null
+
+    $shortcutPath = Join-Path $desktopDirectory "$ShortcutName.lnk"
+    $shell = New-Object -ComObject WScript.Shell
+    $shortcut = $shell.CreateShortcut($shortcutPath)
+    $shortcut.TargetPath = $TargetPath
+    $shortcut.Description = "Open $ShortcutName"
+    $shortcut.WorkingDirectory = Split-Path $TargetPath -Parent
+    if (-not [string]::IsNullOrWhiteSpace($IconLocation)) {
+        $shortcut.IconLocation = $IconLocation
+    }
+    elseif (Test-Path $TargetPath) {
+        $shortcut.IconLocation = "$TargetPath,0"
+    }
+
+    $shortcut.Save()
+    return $shortcutPath
+}
+
 function Ensure-StartMenuShortcut {
     param(
         [string]$ShortcutName,
@@ -268,20 +372,21 @@ function Ensure-StartMenuShortcut {
         [string[]]$ExecutableNames = @(),
         [string[]]$CandidatePaths = @(),
         [string[]]$AppDisplayNamePatterns = @(),
-        [string]$FallbackAppUserModelId = ""
+        [string]$FallbackAppUserModelId = "",
+        [string]$ProgramsSubfolder = ""
     )
 
     $shortcutPath = Copy-ExistingStartMenuShortcut -ShortcutName $ShortcutName -SearchPatterns $SearchPatterns
     if ($shortcutPath) {
         Write-Host "Start Menu shortcut available: $shortcutPath"
-        return
+        return $true
     }
 
     $targetPath = Find-InstalledExecutable -ExecutableNames $ExecutableNames -CandidatePaths $CandidatePaths
     if ($targetPath) {
-        $shortcutPath = New-StartMenuShortcut -ShortcutName $ShortcutName -TargetPath $targetPath
+        $shortcutPath = New-StartMenuShortcut -ShortcutName $ShortcutName -TargetPath $targetPath -ProgramsSubfolder $ProgramsSubfolder
         Write-Host "Created Start Menu shortcut: $shortcutPath"
-        return
+        return $true
     }
 
     $appUserModelId = Get-InstalledAppUserModelId -DisplayNamePatterns $AppDisplayNamePatterns
@@ -295,12 +400,80 @@ function Ensure-StartMenuShortcut {
             -TargetPath "$env:WINDIR\explorer.exe" `
             -Arguments "shell:AppsFolder\$appUserModelId" `
             -WorkingDirectory $env:WINDIR `
-            -IconLocation "$env:WINDIR\System32\shell32.dll,220"
+            -IconLocation "$env:WINDIR\System32\shell32.dll,220" `
+            -ProgramsSubfolder $ProgramsSubfolder
         Write-Host "Created Start Menu shortcut: $shortcutPath"
-        return
+        return $true
     }
 
     Write-Warning "Could not create a Start Menu shortcut for $ShortcutName because no installed executable or app identifier was found."
+    return $false
+}
+
+function Ensure-DesktopShortcut {
+    param(
+        [string]$ShortcutName,
+        [string[]]$ExecutableNames = @(),
+        [string[]]$CandidatePaths = @()
+    )
+
+    $desktopDirectory = [Environment]::GetFolderPath("CommonDesktopDirectory")
+    if ([string]::IsNullOrWhiteSpace($desktopDirectory)) {
+        $desktopDirectory = Join-Path $env:PUBLIC "Desktop"
+    }
+
+    $shortcutPath = Join-Path $desktopDirectory "$ShortcutName.lnk"
+    if (Test-Path $shortcutPath) {
+        Write-Host "Desktop shortcut available: $shortcutPath"
+        return $true
+    }
+
+    $targetPath = Find-InstalledExecutable -ExecutableNames $ExecutableNames -CandidatePaths $CandidatePaths
+    if (-not $targetPath) {
+        Write-Warning "Could not create a Desktop shortcut for $ShortcutName because blender.exe was not found."
+        return $false
+    }
+
+    $shortcutPath = New-DesktopShortcut -ShortcutName $ShortcutName -TargetPath $targetPath
+    Write-Host "Created Desktop shortcut: $shortcutPath"
+    return $true
+}
+
+function Ensure-ApplicationShortcuts {
+    $shortcutReady = $false
+    for ($attempt = 1; $attempt -le 6; $attempt++) {
+        if ($attempt -gt 1) {
+            Write-Host "Waiting for Blender files to become available (attempt $attempt of 6)..."
+            Start-Sleep -Seconds 5
+        }
+
+        $candidatePaths = Get-BlenderExecutableCandidatePaths
+        $startMenuReady = Ensure-StartMenuShortcut `
+            -ShortcutName $startMenuShortcutName `
+            -SearchPatterns $shortcutSearchPatterns `
+            -ExecutableNames $executableNames `
+            -CandidatePaths $candidatePaths `
+            -AppDisplayNamePatterns $appDisplayNamePatterns `
+            -FallbackAppUserModelId $fallbackAppUserModelId `
+            -ProgramsSubfolder $startMenuProgramsSubfolder
+        $desktopReady = Ensure-DesktopShortcut `
+            -ShortcutName $startMenuShortcutName `
+            -ExecutableNames $executableNames `
+            -CandidatePaths $candidatePaths
+
+        if ($startMenuReady) {
+            $shortcutReady = $true
+            if (-not $desktopReady) {
+                Write-Warning "Blender is available in the Start Menu apps list, but a Desktop shortcut could not be created."
+            }
+
+            break
+        }
+    }
+
+    if (-not $shortcutReady) {
+        throw "Blender was installed but a Start Menu shortcut could not be created."
+    }
 }
 
 function Get-BlenderWindowsArchitecture {
@@ -512,7 +685,7 @@ function Install-BlenderFromOfficialMsi {
         }
 
         Write-Host "Installing $packageName $($installer.Version) from official MSI..."
-        $msiArguments = "/i `"$installerPath`" /quiet /norestart"
+        $msiArguments = "/i `"$installerPath`" ALLUSERS=1 /qn /norestart"
         $process = Start-Process -FilePath "msiexec.exe" -ArgumentList $msiArguments -Wait -PassThru
         if ($process.ExitCode -ne 0) {
             throw "$packageName MSI installer failed with exit code $($process.ExitCode)."
@@ -588,7 +761,9 @@ $wingetActionSucceeded = $false
 
 try {
     $winget = Get-WingetPath
-    $action = if (Test-WingetPackageInstalled -WingetPath $winget -PackageId $packageId -Source $source) { "upgrade" } else { "install" }
+    $wingetPackageInstalled = Test-WingetPackageInstalled -WingetPath $winget -PackageId $packageId -Source $source
+    $applicationDetected = $wingetPackageInstalled -or (Test-ApplicationDetected)
+    $action = if ($applicationDetected) { "upgrade" } else { "install" }
     $wingetActionSucceeded = Invoke-WingetPackageCommand -WingetPath $winget -Action $action
 }
 catch {
@@ -598,6 +773,10 @@ catch {
 if (-not $wingetActionSucceeded) {
     Install-BlenderFromOfficialMsi
 }
+elseif (-not (Test-ApplicationDetected)) {
+    Write-Warning "WinGet reported success but Blender was not detected on disk. Running the official MSI to repair the installation."
+    Install-BlenderFromOfficialMsi
+}
 
 Write-Host "$packageName install/update completed successfully."
-Ensure-StartMenuShortcut -ShortcutName $startMenuShortcutName -SearchPatterns $shortcutSearchPatterns -ExecutableNames $executableNames -CandidatePaths $executableCandidatePaths -AppDisplayNamePatterns $appDisplayNamePatterns -FallbackAppUserModelId $fallbackAppUserModelId
+Ensure-ApplicationShortcuts
