@@ -1,40 +1,18 @@
 # Install Windows Sound Recorder (Windows)
-# Installs or updates Windows Sound Recorder from the Microsoft Store via WinGet.
+# Installs or repairs the Windows 11 Sound Recorder inbox app without relying on the WinGet msstore source.
 $ErrorActionPreference = 'Stop'
 
 $packageName = "Windows Sound Recorder"
-$packageId = "9WZDNCRFHWKN"
+$appxPackageName = "Microsoft.WindowsSoundRecorder"
+$packageFamilyName = "Microsoft.WindowsSoundRecorder_8wekyb3d8bbwe"
+$storeProductId = "9WZDNCRFHWKN"
+$displayCatalogUrl = "https://displaycatalog.mp.microsoft.com/v7.0/products/lookup?alternateId=PackageFamilyName&Value=$packageFamilyName&market=US&languages=en-US&fieldsTemplate=Details"
 $startMenuShortcutName = "Windows Sound Recorder"
 $shortcutSearchPatterns = @("Windows Sound Recorder*.lnk", "Sound Recorder*.lnk", "Voice Recorder*.lnk")
 $executableNames = @()
 $executableCandidatePaths = @()
 $appDisplayNamePatterns = @("*Windows Sound Recorder*", "*Sound Recorder*", "*Voice Recorder*")
 $fallbackAppUserModelId = "Microsoft.WindowsSoundRecorder_8wekyb3d8bbwe!App"
-
-$source = "msstore"
-
-function Get-WingetPath {
-    $command = Get-Command winget.exe -ErrorAction SilentlyContinue
-    if ($command) {
-        return $command.Source
-    }
-
-    $candidatePaths = @(
-        "$env:LOCALAPPDATA\Microsoft\WindowsApps\winget.exe",
-        "$env:ProgramFiles\WindowsApps\Microsoft.DesktopAppInstaller_*_x64__8wekyb3d8bbwe\winget.exe",
-        "$env:ProgramFiles\WindowsApps\Microsoft.DesktopAppInstaller_*_x86__8wekyb3d8bbwe\winget.exe",
-        "$env:ProgramFiles\WindowsApps\Microsoft.DesktopAppInstaller_*_arm64__8wekyb3d8bbwe\winget.exe"
-    )
-
-    foreach ($path in $candidatePaths) {
-        $match = Get-Item $path -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-        if ($match) {
-            return $match.FullName
-        }
-    }
-
-    throw "WinGet is required but winget.exe could not be found. Install or repair Microsoft App Installer first."
-}
 
 function Get-CommonProgramsDirectory {
     $programsDirectory = [Environment]::GetFolderPath("CommonPrograms")
@@ -300,104 +278,347 @@ function Ensure-StartMenuShortcut {
     Write-Warning "Could not create a Start Menu shortcut for $ShortcutName because no installed executable or app identifier was found."
 }
 
-function Test-WingetPackageInstalled {
-    param(
-        [string]$WingetPath,
-        [string]$PackageId,
-        [string]$Source
-    )
-
-    $listArguments = @("list", "--id", $PackageId, "--exact")
-    if (-not [string]::IsNullOrWhiteSpace($Source)) {
-        $listArguments += @("--source", $Source)
+function Test-SoundRecorderInstalled {
+    $installedPackages = @(Get-AppxPackage -Name $appxPackageName -AllUsers -ErrorAction SilentlyContinue)
+    if ($installedPackages.Count -gt 0) {
+        return $true
     }
 
-    $output = & $WingetPath @listArguments 2>&1
-    $exitCode = $LASTEXITCODE
-    if ($exitCode -ne 0) {
-        return $false
-    }
-
-    $outputText = $output | Out-String
-    return $outputText -match [regex]::Escape($PackageId)
-}
-
-function Test-ApplicationDetected {
     if (Find-InstalledExecutable -ExecutableNames $executableNames -CandidatePaths $executableCandidatePaths) {
         return $true
     }
 
     $appUserModelId = Get-InstalledAppUserModelId -DisplayNamePatterns $appDisplayNamePatterns
-    if (-not [string]::IsNullOrWhiteSpace($appUserModelId)) {
-        return $true
-    }
-
-    return $false
+    return -not [string]::IsNullOrWhiteSpace($appUserModelId)
 }
 
-function Invoke-WingetPackageCommand {
+function Get-SoundRecorderWindowsAppsDirectory {
+    $windowsAppsRoot = Join-Path $env:ProgramFiles "WindowsApps"
+    if (-not (Test-Path -LiteralPath $windowsAppsRoot)) {
+        return $null
+    }
+
+    return Get-ChildItem -Path $windowsAppsRoot -Directory -Filter "$appxPackageName_*" -ErrorAction SilentlyContinue |
+        Sort-Object Name -Descending |
+        Select-Object -First 1
+}
+
+function Register-SoundRecorderManifest {
+    param([string]$ManifestPath)
+
+    if (-not (Test-Path -LiteralPath $ManifestPath)) {
+        return $false
+    }
+
+    Add-AppxPackage -Register -DisableDevelopmentMode -Path $ManifestPath -ErrorAction Stop | Out-Null
+    return $true
+}
+
+function Repair-SoundRecorderRegistration {
+    $repaired = $false
+    $installedPackages = @(Get-AppxPackage -Name $appxPackageName -AllUsers -ErrorAction SilentlyContinue)
+
+    foreach ($installedPackage in $installedPackages) {
+        if ([string]::IsNullOrWhiteSpace($installedPackage.InstallLocation)) {
+            continue
+        }
+
+        $manifestPath = Join-Path $installedPackage.InstallLocation "AppxManifest.xml"
+        if (-not (Test-Path -LiteralPath $manifestPath)) {
+            continue
+        }
+
+        Write-Host "Re-registering $packageName for package $($installedPackage.PackageFullName)..."
+        Register-SoundRecorderManifest -ManifestPath $manifestPath | Out-Null
+        $repaired = $true
+    }
+
+    return $repaired
+}
+
+function Install-SoundRecorderFromWindowsApps {
+    $packageDirectory = Get-SoundRecorderWindowsAppsDirectory
+    if (-not $packageDirectory) {
+        return $false
+    }
+
+    $manifestPath = Join-Path $packageDirectory.FullName "AppxManifest.xml"
+    if (-not (Test-Path -LiteralPath $manifestPath)) {
+        return $false
+    }
+
+    Write-Host "Registering $packageName from $($packageDirectory.FullName)..."
+    Register-SoundRecorderManifest -ManifestPath $manifestPath | Out-Null
+    return $true
+}
+
+function Install-SoundRecorderFromProvisionedPackage {
+    $provisionedPackage = Get-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue |
+        Where-Object { $_.DisplayName -eq $appxPackageName } |
+        Select-Object -First 1
+
+    if (-not $provisionedPackage) {
+        return $false
+    }
+
+    $packageDirectory = Join-Path $env:ProgramFiles "WindowsApps\$($provisionedPackage.PackageName)"
+    $manifestPath = Join-Path $packageDirectory "AppxManifest.xml"
+    if (-not (Test-Path -LiteralPath $manifestPath)) {
+        $packageDirectory = Get-SoundRecorderWindowsAppsDirectory
+        if ($packageDirectory) {
+            $manifestPath = Join-Path $packageDirectory.FullName "AppxManifest.xml"
+        }
+    }
+
+    if (-not (Test-Path -LiteralPath $manifestPath)) {
+        return $false
+    }
+
+    Write-Host "Installing $packageName from provisioned package $($provisionedPackage.PackageName)..."
+    Register-SoundRecorderManifest -ManifestPath $manifestPath | Out-Null
+    return $true
+}
+
+function Get-WindowsStorePackageVersion {
+    param([string]$VersionString)
+
+    if ([string]::IsNullOrWhiteSpace($VersionString)) {
+        return [version]"0.0.0.0"
+    }
+
+    $normalizedVersion = $VersionString
+    if ($normalizedVersion -match '^(\d{4})\.(\d+)') {
+        $year = [int]$Matches[1]
+        if ($year -ge 2000 -and $year -le 2099) {
+            $normalizedVersion = "11.$($Matches[2]).0.0"
+        }
+    }
+
+    try {
+        return [version]$normalizedVersion
+    }
+    catch {
+        return [version]"0.0.0.0"
+    }
+}
+
+function Get-LatestSoundRecorderCatalogPackage {
+    $catalogResponse = Invoke-RestMethod -Uri $displayCatalogUrl -Method Get -ErrorAction Stop
+    $catalogPackages = @()
+
+    foreach ($product in @($catalogResponse.Products)) {
+        foreach ($skuAvailability in @($product.DisplaySkuAvailabilities)) {
+            foreach ($availability in @($skuAvailability.Availabilities)) {
+                foreach ($package in @($availability.Packages)) {
+                    if ($package.PackageFamilyName -ne $packageFamilyName) {
+                        continue
+                    }
+
+                    if ($package.PackageFormat -notin @("MsixBundle", "AppxBundle", "EAppxBundle")) {
+                        continue
+                    }
+
+                    $catalogPackages += [PSCustomObject]@{
+                        PackageFullName = $package.PackageFullName
+                        PackageFormat = $package.PackageFormat
+                        ContentId = $package.ContentId
+                        Version = Get-WindowsStorePackageVersion -VersionString (($package.PackageFullName -split '_')[1])
+                    }
+                }
+            }
+        }
+    }
+
+    return $catalogPackages |
+        Sort-Object -Property Version -Descending |
+        Select-Object -First 1
+}
+
+function Get-StoreDownloadLinks {
+    param([string]$ProductId)
+
+    $userAgent = [Microsoft.PowerShell.Commands.PSUserAgent]::Chrome
+    $apiUrl = "https://store.rg-adguard.net/api/GetFiles"
+    $requestType = if ($ProductId -like "*_*") { "PackageFamilyName" } else { "ProductId" }
+    $body = @{
+        type = $requestType
+        url = $ProductId
+        ring = "Retail"
+        lang = "en-US"
+    }
+
+    if (-not $script:StoreDownloadWebSession) {
+        $apiHost = ([uri]$apiUrl).GetLeftPart([System.UriPartial]::Authority)
+        Invoke-WebRequest -Uri $apiHost -UserAgent $userAgent -SessionVariable storeDownloadWebSession -UseBasicParsing | Out-Null
+        $script:StoreDownloadWebSession = $storeDownloadWebSession
+    }
+
+    $response = Invoke-WebRequest -Method Post -Uri $apiUrl -ContentType "application/x-www-form-urlencoded" -Body $body -UserAgent $userAgent -WebSession $script:StoreDownloadWebSession -UseBasicParsing
+    $matches = [regex]::Matches($response.Content, '<a href="(?<url>[^"]+)">(?<name>[^<]+\.(?:msix|msixbundle|appx|appxbundle))</a>', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+
+    $links = @()
+    foreach ($match in $matches) {
+        $links += [PSCustomObject]@{
+            Url = $match.Groups["url"].Value
+            Name = $match.Groups["name"].Value
+        }
+    }
+
+    return $links
+}
+
+function Get-SoundRecorderStoreDownloadLinks {
+    param([System.Object[]]$DownloadLinks)
+
+    $architecture = switch ($env:PROCESSOR_ARCHITECTURE) {
+        "AMD64" { "x64" }
+        "ARM64" { "arm64" }
+        default { $env:PROCESSOR_ARCHITECTURE.ToLowerInvariant() }
+    }
+
+    $selectedLinks = [System.Collections.Generic.List[object]]::new()
+
+    $dependencyGroups = $DownloadLinks |
+        Where-Object { $_.Name -notlike "$appxPackageName*" } |
+        Group-Object -Property { ($_.Name -split '_')[0] }
+
+    foreach ($dependencyGroup in $dependencyGroups) {
+        $dependencyMatch = $dependencyGroup.Group |
+            Where-Object { $_.Name -like "*_$architecture*" -or $_.Name -like "*_neutral_*" } |
+            Sort-Object -Property Name -Descending |
+            Select-Object -First 1
+        if ($dependencyMatch) {
+            [void]$selectedLinks.Add($dependencyMatch)
+        }
+    }
+
+    $mainBundle = $DownloadLinks |
+        Where-Object { $_.Name -like "$appxPackageName*" -and $_.Name -like "*$architecture*" -and $_.Name -like "*.msixbundle" } |
+        Select-Object -First 1
+    if (-not $mainBundle) {
+        $mainBundle = $DownloadLinks |
+            Where-Object { $_.Name -like "$appxPackageName*" -and $_.Name -like "*_neutral_*" -and $_.Name -like "*.msixbundle" } |
+            Select-Object -First 1
+    }
+    if (-not $mainBundle) {
+        $mainBundle = $DownloadLinks |
+            Where-Object { $_.Name -like "$appxPackageName*" -and $_.Name -like "*.msixbundle" } |
+            Select-Object -First 1
+    }
+
+    if ($mainBundle) {
+        [void]$selectedLinks.Add($mainBundle)
+    }
+
+    return $selectedLinks.ToArray()
+}
+
+function Save-StorePackageFile {
     param(
-        [string]$WingetPath,
-        [string]$Action
+        [string]$Url,
+        [string]$DestinationDirectory
     )
 
-    $arguments = @($Action, "--id", $packageId, "--exact", "--source", $source, "--silent", "--accept-package-agreements", "--accept-source-agreements")
-    $verb = if ($Action -eq "upgrade") { "Updating" } else { "Installing" }
-    Write-Host "$verb $packageName..."
-
-    $output = & $WingetPath @arguments 2>&1
-    $exitCode = $LASTEXITCODE
-    $output | ForEach-Object { Write-Host $_ }
-
-    return [pscustomobject]@{
-        ExitCode = $exitCode
-        Output = ($output | Out-String)
+    $fileName = Split-Path $Url -Leaf
+    if ([string]::IsNullOrWhiteSpace($fileName)) {
+        $fileName = "WindowsSoundRecorder.msixbundle"
     }
+
+    $destinationPath = Join-Path $DestinationDirectory $fileName
+    Invoke-WebRequest -Uri $Url -OutFile $destinationPath -UseBasicParsing
+    return $destinationPath
 }
 
-function Test-NoUpdateAvailable {
-    param([string]$Output)
+function Install-SoundRecorderPackageFiles {
+    param([string[]]$PackagePaths)
 
-    return $Output -match "No applicable update|No available upgrade|No newer package versions|No upgrade available"
-}
+    $bundlePath = $PackagePaths |
+        Where-Object { $_ -match '\.(msixbundle|appxbundle)$' } |
+        Select-Object -First 1
 
-$winget = Get-WingetPath
-$wingetPackageInstalled = Test-WingetPackageInstalled -WingetPath $winget -PackageId $packageId -Source $source
-$applicationDetected = $wingetPackageInstalled -or (Test-ApplicationDetected)
-$action = if ($applicationDetected) { "upgrade" } else { "install" }
-
-$result = Invoke-WingetPackageCommand -WingetPath $winget -Action $action
-if ($result.ExitCode -ne 0) {
-    if ($action -eq "upgrade" -and (Test-NoUpdateAvailable -Output $result.Output)) {
-        Write-Host "$packageName is already up to date."
+    if (-not $bundlePath) {
+        throw "No Sound Recorder app bundle was downloaded."
     }
-    elseif ($action -eq "upgrade" -and $applicationDetected) {
-        Write-Warning "$packageName update failed with exit code $($result.ExitCode). Trying install to repair or refresh the package."
-        $result = Invoke-WingetPackageCommand -WingetPath $winget -Action "install"
-        if ($result.ExitCode -ne 0) {
-            if ($applicationDetected -or (Test-ApplicationDetected)) {
-                Write-Host "$packageName is installed. Continuing to ensure Start Menu shortcut."
-            }
-            else {
-                throw "$packageName install failed with exit code $($result.ExitCode)."
-            }
-        }
-        else {
-            Write-Host "$packageName install/repair completed successfully."
-        }
-    }
-    elseif ($action -eq "install" -and ($applicationDetected -or (Test-ApplicationDetected))) {
-        Write-Host "$packageName is installed. Continuing to ensure Start Menu shortcut."
+
+    $dependencyPaths = $PackagePaths |
+        Where-Object { $_ -ne $bundlePath -and $_ -match '\.(msix|appx)$' }
+
+    Write-Host "Provisioning $packageName from $bundlePath..."
+    if ($dependencyPaths.Count -gt 0) {
+        Add-AppxProvisionedPackage -Online -PackagePath $bundlePath -DependencyPackagePath $dependencyPaths -SkipLicense -Regions All -ErrorAction Stop | Out-Null
     }
     else {
-        throw "$packageName $action failed with exit code $($result.ExitCode)."
+        Add-AppxProvisionedPackage -Online -PackagePath $bundlePath -SkipLicense -Regions All -ErrorAction Stop | Out-Null
     }
-}
-elseif ($action -eq "upgrade") {
-    Write-Host "$packageName update completed successfully."
-}
-else {
-    Write-Host "$packageName installed successfully."
+
+    Add-AppxPackage -Path $bundlePath -ErrorAction Stop | Out-Null
 }
 
+function Install-SoundRecorderFromStoreDownload {
+    $catalogPackage = Get-LatestSoundRecorderCatalogPackage
+    if ($catalogPackage) {
+        Write-Host "Latest Windows 11 Sound Recorder package from Microsoft catalog: $($catalogPackage.PackageFullName)"
+    }
+
+    $downloadLinks = @(Get-StoreDownloadLinks -ProductId $storeProductId)
+    if ($downloadLinks.Count -eq 0) {
+        $downloadLinks = @(Get-StoreDownloadLinks -ProductId $packageFamilyName)
+    }
+
+    $preferredLinks = @(Get-SoundRecorderStoreDownloadLinks -DownloadLinks $downloadLinks)
+    if ($preferredLinks.Count -eq 0) {
+        throw "Could not resolve a Microsoft Store download link for $packageName."
+    }
+
+    $tempDirectory = Join-Path ([System.IO.Path]::GetTempPath()) ("SoundRecorderInstall-" + [guid]::NewGuid().ToString())
+    New-Item -Path $tempDirectory -ItemType Directory -Force | Out-Null
+
+    try {
+        $downloadedPaths = @()
+        foreach ($link in $preferredLinks) {
+            Write-Host "Downloading $($link.Name)..."
+            $downloadedPaths += Save-StorePackageFile -Url $link.Url -DestinationDirectory $tempDirectory
+        }
+
+        Install-SoundRecorderPackageFiles -PackagePaths $downloadedPaths
+        return $true
+    }
+    finally {
+        Remove-Item -Path $tempDirectory -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Install-SoundRecorderApp {
+    if (Test-SoundRecorderInstalled) {
+        Write-Host "$packageName is already installed. Repairing registration..."
+        if (Repair-SoundRecorderRegistration) {
+            return
+        }
+    }
+
+    $installActions = @(
+        { Repair-SoundRecorderRegistration },
+        { Install-SoundRecorderFromProvisionedPackage },
+        { Install-SoundRecorderFromWindowsApps },
+        { Install-SoundRecorderFromStoreDownload }
+    )
+
+    foreach ($installAction in $installActions) {
+        try {
+            if (& $installAction) {
+                if (Test-SoundRecorderInstalled) {
+                    Write-Host "$packageName install/repair completed successfully."
+                    return
+                }
+            }
+        }
+        catch {
+            Write-Warning "$packageName install step failed. $($_.Exception.Message)"
+        }
+    }
+
+    throw "$packageName could not be installed or repaired. Ensure Microsoft Store endpoints are reachable or restore the inbox app from the Windows image."
+}
+
+Install-SoundRecorderApp
 Ensure-StartMenuShortcut -ShortcutName $startMenuShortcutName -SearchPatterns $shortcutSearchPatterns -ExecutableNames $executableNames -CandidatePaths $executableCandidatePaths -AppDisplayNamePatterns $appDisplayNamePatterns -FallbackAppUserModelId $fallbackAppUserModelId
