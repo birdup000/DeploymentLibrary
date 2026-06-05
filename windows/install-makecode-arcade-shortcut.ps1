@@ -1,5 +1,5 @@
 # Install MakeCode Arcade Web App Shortcut (Windows)
-# Creates all-users Desktop and Start Menu shortcuts for a configurable web app.
+# Creates or refreshes all-users Desktop and Start Menu shortcuts for a configurable web app.
 $ErrorActionPreference = 'Stop'
 
 $shortcutName = if ([string]::IsNullOrWhiteSpace($env:SHORTCUT_NAME)) { "MakeCode Arcade" } else { $env:SHORTCUT_NAME.Trim() }
@@ -92,8 +92,8 @@ $shortcutPaths = @(
 )
 
 foreach ($shortcutPath in $shortcutPaths) {
-    Write-Host "Creating shortcut: $shortcutPath"
+    Write-Host "Creating or refreshing shortcut: $shortcutPath"
     New-WebAppShortcut -ShortcutPath $shortcutPath -Url $appUrl -EdgePath $edgePath -DisplayName $shortcutName
 }
 
-Write-Host "$shortcutName shortcuts created successfully for $appUrl."
+Write-Host "$shortcutName shortcuts created/refreshed successfully for $appUrl."

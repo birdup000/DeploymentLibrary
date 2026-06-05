@@ -29,32 +29,19 @@ linux/                 # Bash scripts for Linux/macOS
 | Update Google Chrome Enterprise | Windows | Maintenance |
 | Configure Chrome Enterprise Policies | Windows | Configuration |
 | Install 7-Zip | Windows | Software |
-| Install Blender | Windows, Linux | Software |
-| Update Blender | Windows | Maintenance |
-| Install Krita | Windows, Linux | Software |
-| Update Krita | Windows | Maintenance |
+| Install Blender | Windows | Software |
+| Install Krita | Windows | Software |
 | Install Blockbench Desktop | Windows | Software |
-| Update Blockbench Desktop | Windows | Maintenance |
-| Install OBS Studio | Windows, Linux | Software |
-| Update OBS Studio | Windows | Maintenance |
+| Install OBS Studio | Windows | Software |
 | Install CapCut | Windows | Software |
-| Update CapCut | Windows | Maintenance |
 | Install MCreator | Windows | Software |
-| Update MCreator | Windows | Maintenance |
 | Install LEGO Education SPIKE | Windows | Software |
-| Update LEGO Education SPIKE | Windows | Maintenance |
 | Install Windows Sound Recorder | Windows | Software |
-| Update Windows Sound Recorder | Windows | Maintenance |
 | Install Xbox Game Bar | Windows | Software |
-| Update Xbox Game Bar | Windows | Maintenance |
 | Install Microsoft Photos | Windows | Software |
-| Update Microsoft Photos | Windows | Maintenance |
 | Install MIT App Inventor Emulator Setup | Windows | Software |
-| Update MIT App Inventor Emulator Setup | Windows | Maintenance |
-| Create Web App Shortcut | Windows | Software |
-| Refresh Web App Shortcut | Windows | Maintenance |
+| Create or Refresh MakeCode Arcade Web App Shortcut | Windows | Software |
 | Install Roblox Studio | Windows | Software |
-| Update Roblox Studio | Windows | Maintenance |
 | Collect System Information | Windows, Linux, macOS | Diagnostics |
 | Disk Cleanup | Windows, Linux | Maintenance |
 | Run Windows Update | Windows | Maintenance |

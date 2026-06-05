@@ -1,45 +1,26 @@
 # Install MCreator (Windows)
-# Installs the latest MCreator release via WinGet.
+# Installs or updates MCreator 2025.2 from the official GitHub release.
 $ErrorActionPreference = 'Stop'
 
 $packageName = "MCreator"
-$packageId = "MCreator.MCreator"
+$packageVersion = "2025.2"
+$releaseVersion = "2025.2.28610"
+$installerFileName = "MCreator.2025.2.Windows.64bit.exe"
+$installerUrl = "https://github.com/MCreator/MCreator/releases/download/$releaseVersion/$installerFileName"
+$expectedSha256 = "95968b2793403eaa331123c944017c703cb74f203b2a2b6817cc12463c534666"
 $startMenuShortcutName = "MCreator"
 $shortcutSearchPatterns = @("MCreator*.lnk")
 $executableNames = @("MCreator.exe")
 $executableCandidatePaths = @(
     "$env:ProgramFiles\MCreator\MCreator.exe",
     "${env:ProgramFiles(x86)}\MCreator\MCreator.exe",
+    "$env:ProgramFiles\Pylo\MCreator\MCreator.exe",
+    "${env:ProgramFiles(x86)}\Pylo\MCreator\MCreator.exe",
+    "$env:SystemDrive\Pylo\MCreator*\MCreator.exe",
     "$env:LOCALAPPDATA\Programs\MCreator\MCreator.exe",
-    "$env:SystemDrive\Users\*\AppData\Local\Programs\MCreator\MCreator.exe"
+    "$env:ProgramFiles\MCreator*\MCreator.exe",
+    "${env:ProgramFiles(x86)}\MCreator*\MCreator.exe"
 )
-$appDisplayNamePatterns = @()
-$fallbackAppUserModelId = ""
-
-$source = "winget"
-
-function Get-WingetPath {
-    $command = Get-Command winget.exe -ErrorAction SilentlyContinue
-    if ($command) {
-        return $command.Source
-    }
-
-    $candidatePaths = @(
-        "$env:LOCALAPPDATA\Microsoft\WindowsApps\winget.exe",
-        "$env:ProgramFiles\WindowsApps\Microsoft.DesktopAppInstaller_*_x64__8wekyb3d8bbwe\winget.exe",
-        "$env:ProgramFiles\WindowsApps\Microsoft.DesktopAppInstaller_*_x86__8wekyb3d8bbwe\winget.exe",
-        "$env:ProgramFiles\WindowsApps\Microsoft.DesktopAppInstaller_*_arm64__8wekyb3d8bbwe\winget.exe"
-    )
-
-    foreach ($path in $candidatePaths) {
-        $match = Get-Item $path -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-        if ($match) {
-            return $match.FullName
-        }
-    }
-
-    throw "WinGet is required but winget.exe could not be found. Install or repair Microsoft App Installer first."
-}
 
 function Get-CommonProgramsDirectory {
     $programsDirectory = [Environment]::GetFolderPath("CommonPrograms")
@@ -63,13 +44,6 @@ function Get-ShortcutSearchRoots {
 
     if (-not [string]::IsNullOrWhiteSpace($env:ProgramData)) {
         $roots += (Join-Path $env:ProgramData "Microsoft\Windows\Start Menu\Programs")
-    }
-
-    $usersDirectory = if (-not [string]::IsNullOrWhiteSpace($env:SystemDrive)) { Join-Path $env:SystemDrive "Users" } else { $null }
-    if (-not [string]::IsNullOrWhiteSpace($usersDirectory) -and (Test-Path $usersDirectory)) {
-        Get-ChildItem -Path $usersDirectory -Directory -ErrorAction SilentlyContinue | ForEach-Object {
-            $roots += (Join-Path $_.FullName "AppData\Roaming\Microsoft\Windows\Start Menu\Programs")
-        }
     }
 
     return $roots | Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and (Test-Path $_) } | Select-Object -Unique
@@ -162,31 +136,22 @@ function Get-FirstExistingPath {
 }
 
 function Find-InstalledExecutable {
-    param(
-        [string[]]$ExecutableNames,
-        [string[]]$CandidatePaths
-    )
-
-    $targetPath = Get-AppPathExecutable -ExecutableNames $ExecutableNames
+    $targetPath = Get-AppPathExecutable -ExecutableNames $executableNames
     if ($targetPath) {
         return $targetPath
     }
 
-    $targetPath = Get-FirstExistingPath -CandidatePaths $CandidatePaths
+    $targetPath = Get-FirstExistingPath -CandidatePaths $executableCandidatePaths
     if ($targetPath) {
         return $targetPath
     }
 
-    $searchRoots = @($env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:LOCALAPPDATA) |
+    $searchRoots = @($env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:LOCALAPPDATA, (Join-Path $env:SystemDrive "Pylo")) |
         Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and (Test-Path $_) } |
         Select-Object -Unique
 
     foreach ($root in $searchRoots) {
-        foreach ($executableName in @($ExecutableNames)) {
-            if ([string]::IsNullOrWhiteSpace($executableName)) {
-                continue
-            }
-
+        foreach ($executableName in @($executableNames)) {
             $match = Get-ChildItem -Path $root -Filter $executableName -File -Recurse -ErrorAction SilentlyContinue |
                 Sort-Object LastWriteTime -Descending |
                 Select-Object -First 1
@@ -199,38 +164,10 @@ function Find-InstalledExecutable {
     return $null
 }
 
-function Get-InstalledAppUserModelId {
-    param([string[]]$DisplayNamePatterns)
-
-    if (-not (Get-Command Get-StartApps -ErrorAction SilentlyContinue)) {
-        return $null
-    }
-
-    $startApps = @(Get-StartApps)
-    foreach ($pattern in @($DisplayNamePatterns)) {
-        if ([string]::IsNullOrWhiteSpace($pattern)) {
-            continue
-        }
-
-        $match = $startApps |
-            Where-Object { $_.Name -like $pattern } |
-            Sort-Object Name |
-            Select-Object -First 1
-        if ($match) {
-            return $match.AppID
-        }
-    }
-
-    return $null
-}
-
 function New-StartMenuShortcut {
     param(
         [string]$ShortcutName,
-        [string]$TargetPath,
-        [string]$Arguments = "",
-        [string]$WorkingDirectory = "",
-        [string]$IconLocation = ""
+        [string]$TargetPath
     )
 
     $programsDirectory = Get-CommonProgramsDirectory
@@ -240,79 +177,53 @@ function New-StartMenuShortcut {
     $shell = New-Object -ComObject WScript.Shell
     $shortcut = $shell.CreateShortcut($shortcutPath)
     $shortcut.TargetPath = $TargetPath
-    if (-not [string]::IsNullOrWhiteSpace($Arguments)) {
-        $shortcut.Arguments = $Arguments
-    }
-
     $shortcut.Description = "Open $ShortcutName"
-    if (-not [string]::IsNullOrWhiteSpace($WorkingDirectory)) {
-        $shortcut.WorkingDirectory = $WorkingDirectory
-    }
-    elseif (Test-Path $TargetPath) {
-        $shortcut.WorkingDirectory = Split-Path $TargetPath -Parent
-    }
-
-    if (-not [string]::IsNullOrWhiteSpace($IconLocation)) {
-        $shortcut.IconLocation = $IconLocation
-    }
-    elseif (Test-Path $TargetPath) {
-        $shortcut.IconLocation = "$TargetPath,0"
-    }
-
+    $shortcut.WorkingDirectory = Split-Path $TargetPath -Parent
+    $shortcut.IconLocation = "$TargetPath,0"
     $shortcut.Save()
     return $shortcutPath
 }
 
 function Ensure-StartMenuShortcut {
-    param(
-        [string]$ShortcutName,
-        [string[]]$SearchPatterns = @(),
-        [string[]]$ExecutableNames = @(),
-        [string[]]$CandidatePaths = @(),
-        [string[]]$AppDisplayNamePatterns = @(),
-        [string]$FallbackAppUserModelId = ""
-    )
-
-    $shortcutPath = Copy-ExistingStartMenuShortcut -ShortcutName $ShortcutName -SearchPatterns $SearchPatterns
+    $shortcutPath = Copy-ExistingStartMenuShortcut -ShortcutName $startMenuShortcutName -SearchPatterns $shortcutSearchPatterns
     if ($shortcutPath) {
         Write-Host "Start Menu shortcut available: $shortcutPath"
         return
     }
 
-    $targetPath = Find-InstalledExecutable -ExecutableNames $ExecutableNames -CandidatePaths $CandidatePaths
-    if ($targetPath) {
-        $shortcutPath = New-StartMenuShortcut -ShortcutName $ShortcutName -TargetPath $targetPath
-        Write-Host "Created Start Menu shortcut: $shortcutPath"
+    $targetPath = Find-InstalledExecutable
+    if (-not $targetPath) {
+        Write-Warning "Could not create a Start Menu shortcut for $startMenuShortcutName because MCreator.exe was not found."
         return
     }
 
-    $appUserModelId = Get-InstalledAppUserModelId -DisplayNamePatterns $AppDisplayNamePatterns
-    if ([string]::IsNullOrWhiteSpace($appUserModelId)) {
-        $appUserModelId = $FallbackAppUserModelId
-    }
-
-    if (-not [string]::IsNullOrWhiteSpace($appUserModelId)) {
-        $shortcutPath = New-StartMenuShortcut `
-            -ShortcutName $ShortcutName `
-            -TargetPath "$env:WINDIR\explorer.exe" `
-            -Arguments "shell:AppsFolder\$appUserModelId" `
-            -WorkingDirectory $env:WINDIR `
-            -IconLocation "$env:WINDIR\System32\shell32.dll,220"
-        Write-Host "Created Start Menu shortcut: $shortcutPath"
-        return
-    }
-
-    Write-Warning "Could not create a Start Menu shortcut for $ShortcutName because no installed executable or app identifier was found."
+    $shortcutPath = New-StartMenuShortcut -ShortcutName $startMenuShortcutName -TargetPath $targetPath
+    Write-Host "Created Start Menu shortcut: $shortcutPath"
 }
 
-$winget = Get-WingetPath
-$arguments = @("install", "--id", $packageId, "--exact", "--source", $source, "--silent", "--accept-package-agreements", "--accept-source-agreements")
+$tempDirectory = Join-Path ([System.IO.Path]::GetTempPath()) ("MCreatorInstall-" + [guid]::NewGuid().ToString())
+$installerPath = Join-Path $tempDirectory $installerFileName
 
-Write-Host "Installing $packageName..."
-& $winget @arguments
-if ($LASTEXITCODE -ne 0) {
-    throw "$packageName install failed with exit code $LASTEXITCODE."
+try {
+    New-Item -Path $tempDirectory -ItemType Directory -Force | Out-Null
+
+    Write-Host "Downloading $packageName $packageVersion from $installerUrl..."
+    Invoke-WebRequest -Uri $installerUrl -OutFile $installerPath -UseBasicParsing
+
+    $actualSha256 = (Get-FileHash -Path $installerPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($actualSha256 -ne $expectedSha256) {
+        throw "$packageName installer SHA-256 mismatch. Expected $expectedSha256 but found $actualSha256."
+    }
+
+    Write-Host "Installing $packageName $packageVersion..."
+    $process = Start-Process -FilePath $installerPath -ArgumentList "/S" -Wait -NoNewWindow -PassThru
+    if ($process.ExitCode -ne 0) {
+        throw "$packageName installer failed with exit code $($process.ExitCode)."
+    }
+
+    Write-Host "$packageName $packageVersion install/update completed successfully."
+    Ensure-StartMenuShortcut
 }
-
-Write-Host "$packageName installed successfully."
-Ensure-StartMenuShortcut -ShortcutName $startMenuShortcutName -SearchPatterns $shortcutSearchPatterns -ExecutableNames $executableNames -CandidatePaths $executableCandidatePaths -AppDisplayNamePatterns $appDisplayNamePatterns -FallbackAppUserModelId $fallbackAppUserModelId
+finally {
+    Remove-Item -Path $tempDirectory -Recurse -Force -ErrorAction SilentlyContinue
+}

@@ -1,10 +1,10 @@
 # Install MIT App Inventor Emulator Setup (Windows)
-# Downloads and silently installs the MIT App Inventor emulator/USB setup tools.
+# Downloads from the official MIT Windows setup page and silently installs or updates the emulator/USB setup tools.
 $ErrorActionPreference = 'Stop'
 
 $packageName = "MIT App Inventor Emulator Setup"
-$setupLink = "https://appinv.us/aisetup_windows"
-$installerFileName = "MIT_App_Inventor_Tools_win_setup.exe"
+$setupPageUrl = "https://appinventor.mit.edu/explore/ai2/windows.html"
+$installerFileName = "MIT_App_Inventor_Tools_win_setup64.exe"
 $tempDirectory = Join-Path ([System.IO.Path]::GetTempPath()) ("MITAppInventor-" + [guid]::NewGuid().ToString())
 $installerPath = Join-Path $tempDirectory $installerFileName
 
@@ -27,22 +27,84 @@ function Wait-AppInventorSetupProcess {
 }
 
 function Get-AppInventorDownloadUrl {
-    $request = [System.Net.WebRequest]::Create($setupLink)
-    $request.AllowAutoRedirect = $false
-    $response = $request.GetResponse()
+    Write-Host "Resolving $packageName download from $setupPageUrl..."
+    $page = Invoke-WebRequest -Uri $setupPageUrl -UseBasicParsing
+    $content = $page.Content
 
-    try {
-        $location = $response.Headers["Location"]
-    }
-    finally {
-        $response.Close()
-    }
-
-    if ($location -notmatch "/share/([^/?#]+)") {
-        throw "Could not resolve MIT App Inventor setup download from $setupLink."
+    $downloadPattern = '<a\s+[^>]*href=["'']([^"'']+)["''][^>]*>\s*Download the installer\.?\s*</a>'
+    $downloadMatch = [regex]::Match($content, $downloadPattern, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase -bor [System.Text.RegularExpressions.RegexOptions]::Singleline)
+    if (-not $downloadMatch.Success) {
+        $shortLinkPattern = 'href=["'']([^"'']*appinv\.us/aisetup[^"'']*)["'']'
+        $downloadMatch = [regex]::Match($content, $shortLinkPattern, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
     }
 
-    return "https://files.appinventor.mit.edu/api/public/dl/$($matches[1])"
+    if (-not $downloadMatch.Success) {
+        throw "Could not find the MIT App Inventor setup download link on $setupPageUrl."
+    }
+
+    $href = [System.Net.WebUtility]::HtmlDecode($downloadMatch.Groups[1].Value)
+    $downloadUri = [Uri]::new([Uri]$setupPageUrl, $href)
+    return $downloadUri.AbsoluteUri
+}
+
+function Get-AppInventorUninstallString {
+    $registryPaths = @(
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*",
+        "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*",
+        "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*"
+    )
+
+    $entry = Get-ItemProperty $registryPaths -ErrorAction SilentlyContinue |
+        Where-Object { $_.DisplayName -match "App Inventor" -or $_.DisplayName -match "MIT.*Inventor" } |
+        Select-Object -First 1
+
+    if ($entry -and $entry.UninstallString) {
+        return $entry.UninstallString
+    }
+
+    $knownUninstallers = @(
+        "$env:ProgramFiles\AppInventor\uninstall.exe",
+        "${env:ProgramFiles(x86)}\AppInventor\uninstall.exe"
+    )
+
+    foreach ($path in $knownUninstallers) {
+        if (Test-Path $path) {
+            return "`"$path`""
+        }
+    }
+
+    return $null
+}
+
+function Invoke-AppInventorUninstall {
+    param([string]$UninstallString)
+
+    if ([string]::IsNullOrWhiteSpace($UninstallString)) {
+        Write-Host "No existing $packageName installation found."
+        return
+    }
+
+    if ($UninstallString -match '^\s*"([^"]+)"\s*(.*)$') {
+        $filePath = $matches[1]
+        $arguments = $matches[2]
+    }
+    elseif ($UninstallString -match '^\s*(\S+)\s*(.*)$') {
+        $filePath = $matches[1]
+        $arguments = $matches[2]
+    }
+    else {
+        throw "Could not parse uninstall command: $UninstallString"
+    }
+
+    if ($arguments -notmatch '(^|\s)/S(\s|$)') {
+        $arguments = "$arguments /S".Trim()
+    }
+
+    Write-Host "Uninstalling existing $packageName..."
+    $process = Start-Process -FilePath $filePath -ArgumentList $arguments -Wait -NoNewWindow -PassThru
+    if ($process.ExitCode -ne 0) {
+        throw "$packageName uninstall failed with exit code $($process.ExitCode)."
+    }
 }
 
 function Get-CommonProgramsDirectory {
@@ -109,6 +171,7 @@ try {
     Wait-AppInventorSetupProcess
     New-Item -Path $tempDirectory -ItemType Directory -Force | Out-Null
 
+    Invoke-AppInventorUninstall -UninstallString (Get-AppInventorUninstallString)
     $installerUrl = Get-AppInventorDownloadUrl
 
     Write-Host "Downloading $packageName..."
@@ -120,7 +183,7 @@ try {
         throw "$packageName installer failed with exit code $($process.ExitCode)."
     }
 
-    Write-Host "$packageName installed successfully."
+    Write-Host "$packageName install/update completed successfully."
     New-WebAppStartMenuShortcut -ShortcutName "MIT App Inventor" -Url "https://ai2.appinventor.mit.edu/"
     Write-Host "A logout or reboot may be required before aiStarter is available for all users."
 }

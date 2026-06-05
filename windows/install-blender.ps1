@@ -1,5 +1,5 @@
 # Install Blender (Windows)
-# Installs the latest Blender release via WinGet with an official MSI fallback.
+# Installs or updates the latest Blender release via WinGet with an official MSI fallback.
 $ErrorActionPreference = 'Stop'
 
 $packageName = "Blender"
@@ -523,43 +523,81 @@ function Install-BlenderFromOfficialMsi {
     }
 }
 
-function Invoke-WingetPackageInstall {
+function Test-WingetPackageInstalled {
     param(
         [string]$WingetPath,
-        [string[]]$Arguments
+        [string]$PackageId,
+        [string]$Source
     )
 
-    Write-Host "Installing $packageName..."
-    & $WingetPath @Arguments 2>&1 | ForEach-Object { Write-Host $_ }
+    $listArguments = @("list", "--id", $PackageId, "--exact")
+    if (-not [string]::IsNullOrWhiteSpace($Source)) {
+        $listArguments += @("--source", $Source)
+    }
+
+    $output = & $WingetPath @listArguments 2>&1
     $exitCode = $LASTEXITCODE
+    if ($exitCode -ne 0) {
+        return $false
+    }
+
+    $outputText = $output | Out-String
+    return $outputText -match [regex]::Escape($PackageId)
+}
+
+function Test-NoUpdateAvailable {
+    param([string]$Output)
+
+    return $Output -match "No applicable update|No available upgrade|No newer package versions|No upgrade available"
+}
+
+function Invoke-WingetPackageCommand {
+    param(
+        [string]$WingetPath,
+        [string]$Action
+    )
+
+    $arguments = @($Action, "--id", $packageId, "--exact", "--source", $source, "--silent", "--accept-package-agreements", "--accept-source-agreements")
+    $verb = if ($Action -eq "upgrade") { "Updating" } else { "Installing" }
+    Write-Host "$verb $packageName..."
+
+    $output = & $WingetPath @arguments 2>&1
+    $exitCode = $LASTEXITCODE
+    $output | ForEach-Object { Write-Host $_ }
+
     if ($exitCode -eq 0) {
         return $true
     }
 
+    if ($Action -eq "upgrade" -and (Test-NoUpdateAvailable -Output ($output | Out-String))) {
+        Write-Host "$packageName is already up to date."
+        return $true
+    }
+
     if (($exitCode -eq -2147024894) -or ($exitCode -eq 2147942402)) {
-        Write-Warning "$packageName install via WinGet failed with exit code $exitCode (0x80070002: file not found). Falling back to the official Blender MSI."
+        Write-Warning "$packageName $Action via WinGet failed with exit code $exitCode (0x80070002: file not found). Falling back to the official Blender MSI."
     }
     else {
-        Write-Warning "$packageName install via WinGet failed with exit code $exitCode. Falling back to the official Blender MSI."
+        Write-Warning "$packageName $Action via WinGet failed with exit code $exitCode. Falling back to the official Blender MSI."
     }
 
     return $false
 }
 
-$wingetInstalled = $false
-$arguments = @("install", "--id", $packageId, "--exact", "--source", $source, "--silent", "--accept-package-agreements", "--accept-source-agreements")
+$wingetActionSucceeded = $false
 
 try {
     $winget = Get-WingetPath
-    $wingetInstalled = Invoke-WingetPackageInstall -WingetPath $winget -Arguments $arguments
+    $action = if (Test-WingetPackageInstalled -WingetPath $winget -PackageId $packageId -Source $source) { "upgrade" } else { "install" }
+    $wingetActionSucceeded = Invoke-WingetPackageCommand -WingetPath $winget -Action $action
 }
 catch {
-    Write-Warning "WinGet install path could not be used. $($_.Exception.Message)"
+    Write-Warning "WinGet install/update path could not be used. $($_.Exception.Message)"
 }
 
-if (-not $wingetInstalled) {
+if (-not $wingetActionSucceeded) {
     Install-BlenderFromOfficialMsi
 }
 
-Write-Host "$packageName installed successfully."
+Write-Host "$packageName install/update completed successfully."
 Ensure-StartMenuShortcut -ShortcutName $startMenuShortcutName -SearchPatterns $shortcutSearchPatterns -ExecutableNames $executableNames -CandidatePaths $executableCandidatePaths -AppDisplayNamePatterns $appDisplayNamePatterns -FallbackAppUserModelId $fallbackAppUserModelId

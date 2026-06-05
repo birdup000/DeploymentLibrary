@@ -1,5 +1,5 @@
 # Install Xbox Game Bar (Windows)
-# Installs Xbox Game Bar from the Microsoft Store via WinGet.
+# Installs or updates Xbox Game Bar from the Microsoft Store via WinGet.
 $ErrorActionPreference = 'Stop'
 
 $packageName = "Xbox Game Bar"
@@ -300,14 +300,104 @@ function Ensure-StartMenuShortcut {
     Write-Warning "Could not create a Start Menu shortcut for $ShortcutName because no installed executable or app identifier was found."
 }
 
-$winget = Get-WingetPath
-$arguments = @("install", "--id", $packageId, "--exact", "--source", $source, "--silent", "--accept-package-agreements", "--accept-source-agreements")
+function Test-WingetPackageInstalled {
+    param(
+        [string]$WingetPath,
+        [string]$PackageId,
+        [string]$Source
+    )
 
-Write-Host "Installing $packageName..."
-& $winget @arguments
-if ($LASTEXITCODE -ne 0) {
-    throw "$packageName install failed with exit code $LASTEXITCODE."
+    $listArguments = @("list", "--id", $PackageId, "--exact")
+    if (-not [string]::IsNullOrWhiteSpace($Source)) {
+        $listArguments += @("--source", $Source)
+    }
+
+    $output = & $WingetPath @listArguments 2>&1
+    $exitCode = $LASTEXITCODE
+    if ($exitCode -ne 0) {
+        return $false
+    }
+
+    $outputText = $output | Out-String
+    return $outputText -match [regex]::Escape($PackageId)
 }
 
-Write-Host "$packageName installed successfully."
+function Test-ApplicationDetected {
+    if (Find-InstalledExecutable -ExecutableNames $executableNames -CandidatePaths $executableCandidatePaths) {
+        return $true
+    }
+
+    $appUserModelId = Get-InstalledAppUserModelId -DisplayNamePatterns $appDisplayNamePatterns
+    if (-not [string]::IsNullOrWhiteSpace($appUserModelId)) {
+        return $true
+    }
+
+    return $false
+}
+
+function Invoke-WingetPackageCommand {
+    param(
+        [string]$WingetPath,
+        [string]$Action
+    )
+
+    $arguments = @($Action, "--id", $packageId, "--exact", "--source", $source, "--silent", "--accept-package-agreements", "--accept-source-agreements")
+    $verb = if ($Action -eq "upgrade") { "Updating" } else { "Installing" }
+    Write-Host "$verb $packageName..."
+
+    $output = & $WingetPath @arguments 2>&1
+    $exitCode = $LASTEXITCODE
+    $output | ForEach-Object { Write-Host $_ }
+
+    return [pscustomobject]@{
+        ExitCode = $exitCode
+        Output = ($output | Out-String)
+    }
+}
+
+function Test-NoUpdateAvailable {
+    param([string]$Output)
+
+    return $Output -match "No applicable update|No available upgrade|No newer package versions|No upgrade available"
+}
+
+$winget = Get-WingetPath
+$wingetPackageInstalled = Test-WingetPackageInstalled -WingetPath $winget -PackageId $packageId -Source $source
+$applicationDetected = $wingetPackageInstalled -or (Test-ApplicationDetected)
+$action = if ($applicationDetected) { "upgrade" } else { "install" }
+
+$result = Invoke-WingetPackageCommand -WingetPath $winget -Action $action
+if ($result.ExitCode -ne 0) {
+    if ($action -eq "upgrade" -and (Test-NoUpdateAvailable -Output $result.Output)) {
+        Write-Host "$packageName is already up to date."
+    }
+    elseif ($action -eq "upgrade" -and $applicationDetected) {
+        Write-Warning "$packageName update failed with exit code $($result.ExitCode). Trying install to repair or refresh the package."
+        $result = Invoke-WingetPackageCommand -WingetPath $winget -Action "install"
+        if ($result.ExitCode -ne 0) {
+            if ($applicationDetected -or (Test-ApplicationDetected)) {
+                Write-Host "$packageName is installed. Continuing to ensure Start Menu shortcut."
+            }
+            else {
+                throw "$packageName install failed with exit code $($result.ExitCode)."
+            }
+        }
+        else {
+            Write-Host "$packageName install/repair completed successfully."
+        }
+    }
+    elseif ($action -eq "install" -and ($applicationDetected -or (Test-ApplicationDetected))) {
+        Write-Host "$packageName is installed. Continuing to ensure Start Menu shortcut."
+    }
+    else {
+        throw "$packageName $action failed with exit code $($result.ExitCode)."
+    }
+}
+elseif ($action -eq "upgrade") {
+    Write-Host "$packageName update completed successfully."
+}
+else {
+    Write-Host "$packageName installed successfully."
+}
+
 Ensure-StartMenuShortcut -ShortcutName $startMenuShortcutName -SearchPatterns $shortcutSearchPatterns -ExecutableNames $executableNames -CandidatePaths $executableCandidatePaths -AppDisplayNamePatterns $appDisplayNamePatterns -FallbackAppUserModelId $fallbackAppUserModelId
