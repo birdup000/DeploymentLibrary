@@ -278,6 +278,10 @@ function Ensure-StartMenuShortcut {
     Write-Warning "Could not create a Start Menu shortcut for $ShortcutName because no installed executable or app identifier was found."
 }
 
+function Test-RunningAsSystem {
+    return [System.Security.Principal.WindowsIdentity]::GetCurrent().IsSystem
+}
+
 function Test-SoundRecorderInstalled {
     $installedPackages = @(Get-AppxPackage -Name $appxPackageName -AllUsers -ErrorAction SilentlyContinue)
     if ($installedPackages.Count -gt 0) {
@@ -290,6 +294,14 @@ function Test-SoundRecorderInstalled {
 
     $appUserModelId = Get-InstalledAppUserModelId -DisplayNamePatterns $appDisplayNamePatterns
     return -not [string]::IsNullOrWhiteSpace($appUserModelId)
+}
+
+function Test-SoundRecorderProvisioned {
+    $provisionedPackage = Get-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue |
+        Where-Object { $_.DisplayName -eq $appxPackageName } |
+        Select-Object -First 1
+
+    return $null -ne $provisionedPackage
 }
 
 function Get-SoundRecorderWindowsAppsDirectory {
@@ -306,6 +318,11 @@ function Get-SoundRecorderWindowsAppsDirectory {
 function Register-SoundRecorderManifest {
     param([string]$ManifestPath)
 
+    if (Test-RunningAsSystem) {
+        Write-Host "Skipping Add-AppxPackage -Register because deployment is running as SYSTEM."
+        return $false
+    }
+
     if (-not (Test-Path -LiteralPath $ManifestPath)) {
         return $false
     }
@@ -314,7 +331,37 @@ function Register-SoundRecorderManifest {
     return $true
 }
 
+function Provision-SoundRecorderPackage {
+    param(
+        [string]$BundlePath,
+        [string[]]$DependencyPaths = @()
+    )
+
+    if (-not (Test-Path -LiteralPath $BundlePath)) {
+        return $false
+    }
+
+    Write-Host "Provisioning $packageName for all users from $BundlePath..."
+    if ($DependencyPaths.Count -gt 0) {
+        Add-AppxProvisionedPackage -Online -PackagePath $BundlePath -DependencyPackagePath $DependencyPaths -SkipLicense -Regions All -ErrorAction Stop | Out-Null
+    }
+    else {
+        Add-AppxProvisionedPackage -Online -PackagePath $BundlePath -SkipLicense -Regions All -ErrorAction Stop | Out-Null
+    }
+
+    return $true
+}
+
 function Repair-SoundRecorderRegistration {
+    if (Test-RunningAsSystem) {
+        if (Test-SoundRecorderInstalled -or Test-SoundRecorderProvisioned) {
+            Write-Host "$packageName is already available. Skipping user-context re-registration while running as SYSTEM."
+            return $true
+        }
+
+        return $false
+    }
+
     $repaired = $false
     $installedPackages = @(Get-AppxPackage -Name $appxPackageName -AllUsers -ErrorAction SilentlyContinue)
 
@@ -329,16 +376,27 @@ function Repair-SoundRecorderRegistration {
         }
 
         Write-Host "Re-registering $packageName for package $($installedPackage.PackageFullName)..."
-        Register-SoundRecorderManifest -ManifestPath $manifestPath | Out-Null
-        $repaired = $true
+        if (Register-SoundRecorderManifest -ManifestPath $manifestPath) {
+            $repaired = $true
+        }
     }
 
     return $repaired
 }
 
 function Install-SoundRecorderFromWindowsApps {
+    if (Test-SoundRecorderProvisioned) {
+        Write-Host "$packageName is already provisioned for all users."
+        return $true
+    }
+
     $packageDirectory = Get-SoundRecorderWindowsAppsDirectory
     if (-not $packageDirectory) {
+        return $false
+    }
+
+    if (Test-RunningAsSystem) {
+        Write-Host "Sound Recorder package files are present, but SYSTEM cannot perform user-context registration from $($packageDirectory.FullName)."
         return $false
     }
 
@@ -348,8 +406,7 @@ function Install-SoundRecorderFromWindowsApps {
     }
 
     Write-Host "Registering $packageName from $($packageDirectory.FullName)..."
-    Register-SoundRecorderManifest -ManifestPath $manifestPath | Out-Null
-    return $true
+    return Register-SoundRecorderManifest -ManifestPath $manifestPath
 }
 
 function Install-SoundRecorderFromProvisionedPackage {
@@ -361,21 +418,7 @@ function Install-SoundRecorderFromProvisionedPackage {
         return $false
     }
 
-    $packageDirectory = Join-Path $env:ProgramFiles "WindowsApps\$($provisionedPackage.PackageName)"
-    $manifestPath = Join-Path $packageDirectory "AppxManifest.xml"
-    if (-not (Test-Path -LiteralPath $manifestPath)) {
-        $packageDirectory = Get-SoundRecorderWindowsAppsDirectory
-        if ($packageDirectory) {
-            $manifestPath = Join-Path $packageDirectory.FullName "AppxManifest.xml"
-        }
-    }
-
-    if (-not (Test-Path -LiteralPath $manifestPath)) {
-        return $false
-    }
-
-    Write-Host "Installing $packageName from provisioned package $($provisionedPackage.PackageName)..."
-    Register-SoundRecorderManifest -ManifestPath $manifestPath | Out-Null
+    Write-Host "$packageName is provisioned for all users as $($provisionedPackage.PackageName)."
     return $true
 }
 
@@ -543,15 +586,15 @@ function Install-SoundRecorderPackageFiles {
     $dependencyPaths = $PackagePaths |
         Where-Object { $_ -ne $bundlePath -and $_ -match '\.(msix|appx)$' }
 
-    Write-Host "Provisioning $packageName from $bundlePath..."
-    if ($dependencyPaths.Count -gt 0) {
-        Add-AppxProvisionedPackage -Online -PackagePath $bundlePath -DependencyPackagePath $dependencyPaths -SkipLicense -Regions All -ErrorAction Stop | Out-Null
+    Provision-SoundRecorderPackage -BundlePath $bundlePath -DependencyPaths @($dependencyPaths) | Out-Null
+
+    if (-not (Test-RunningAsSystem)) {
+        Write-Host "Registering $packageName for the current user..."
+        Add-AppxPackage -Path $bundlePath -ErrorAction Stop | Out-Null
     }
     else {
-        Add-AppxProvisionedPackage -Online -PackagePath $bundlePath -SkipLicense -Regions All -ErrorAction Stop | Out-Null
+        Write-Host "Provisioned $packageName for all users. Existing users receive it automatically; new users get it on first sign-in."
     }
-
-    Add-AppxPackage -Path $bundlePath -ErrorAction Stop | Out-Null
 }
 
 function Install-SoundRecorderFromStoreDownload {
@@ -588,25 +631,29 @@ function Install-SoundRecorderFromStoreDownload {
     }
 }
 
+function Test-SoundRecorderReady {
+    return (Test-SoundRecorderInstalled -or Test-SoundRecorderProvisioned)
+}
+
 function Install-SoundRecorderApp {
-    if (Test-SoundRecorderInstalled) {
-        Write-Host "$packageName is already installed. Repairing registration..."
+    if (Test-SoundRecorderReady) {
         if (Repair-SoundRecorderRegistration) {
+            Write-Host "$packageName install/repair completed successfully."
             return
         }
     }
 
     $installActions = @(
-        { Repair-SoundRecorderRegistration },
         { Install-SoundRecorderFromProvisionedPackage },
-        { Install-SoundRecorderFromWindowsApps },
-        { Install-SoundRecorderFromStoreDownload }
+        { Install-SoundRecorderFromStoreDownload },
+        { Repair-SoundRecorderRegistration },
+        { Install-SoundRecorderFromWindowsApps }
     )
 
     foreach ($installAction in $installActions) {
         try {
             if (& $installAction) {
-                if (Test-SoundRecorderInstalled) {
+                if (Test-SoundRecorderReady) {
                     Write-Host "$packageName install/repair completed successfully."
                     return
                 }
