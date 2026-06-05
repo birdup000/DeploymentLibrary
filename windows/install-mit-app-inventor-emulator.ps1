@@ -47,19 +47,24 @@ function Get-AppInventorDownloadUrl {
     return $downloadUri.AbsoluteUri
 }
 
-function Get-AppInventorUninstallString {
+function Get-AppInventorUninstallCommands {
     $registryPaths = @(
         "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*",
         "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*",
         "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*"
     )
 
-    $entry = Get-ItemProperty $registryPaths -ErrorAction SilentlyContinue |
-        Where-Object { $_.DisplayName -match "App Inventor" -or $_.DisplayName -match "MIT.*Inventor" } |
-        Select-Object -First 1
+    $commands = @()
+    $entries = @(Get-ItemProperty $registryPaths -ErrorAction SilentlyContinue |
+        Where-Object { $_.DisplayName -match "App Inventor" -or $_.DisplayName -match "MIT.*Inventor" })
 
-    if ($entry -and $entry.UninstallString) {
-        return $entry.UninstallString
+    foreach ($entry in $entries) {
+        if ($entry.QuietUninstallString) {
+            $commands += [string]$entry.QuietUninstallString
+        }
+        elseif ($entry.UninstallString) {
+            $commands += [string]$entry.UninstallString
+        }
     }
 
     $knownUninstallers = @(
@@ -69,24 +74,27 @@ function Get-AppInventorUninstallString {
 
     foreach ($path in $knownUninstallers) {
         if (Test-Path $path) {
-            return "`"$path`""
+            $commands += "`"$path`""
         }
     }
 
-    return $null
+    return @($commands | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)
 }
 
-function Invoke-AppInventorUninstall {
+function Split-AppInventorCommandLine {
     param([string]$UninstallString)
 
     if ([string]::IsNullOrWhiteSpace($UninstallString)) {
-        Write-Host "No existing $packageName installation found."
-        return
+        return $null
     }
 
     if ($UninstallString -match '^\s*"([^"]+)"\s*(.*)$') {
         $filePath = $matches[1]
         $arguments = $matches[2]
+    }
+    elseif ($UninstallString -match '^\s*(.+?\.(exe|msi|cmd|bat))\s*(.*)$') {
+        $filePath = $matches[1]
+        $arguments = $matches[3]
     }
     elseif ($UninstallString -match '^\s*(\S+)\s*(.*)$') {
         $filePath = $matches[1]
@@ -96,14 +104,71 @@ function Invoke-AppInventorUninstall {
         throw "Could not parse uninstall command: $UninstallString"
     }
 
-    if ($arguments -notmatch '(^|\s)/S(\s|$)') {
-        $arguments = "$arguments /S".Trim()
+    return [pscustomobject]@{
+        FilePath = $filePath.Trim()
+        Arguments = $arguments.Trim()
+    }
+}
+
+function Resolve-AppInventorCommandPath {
+    param([string]$FilePath)
+
+    if (Test-Path -LiteralPath $FilePath) {
+        return (Resolve-Path -LiteralPath $FilePath).Path
     }
 
-    Write-Host "Uninstalling existing $packageName..."
-    $process = Start-Process -FilePath $filePath -ArgumentList $arguments -Wait -NoNewWindow -PassThru
-    if ($process.ExitCode -ne 0) {
-        throw "$packageName uninstall failed with exit code $($process.ExitCode)."
+    $command = Get-Command -Name $FilePath -ErrorAction SilentlyContinue
+    if ($command) {
+        if ($command.Path) {
+            return $command.Path
+        }
+        if ($command.Source) {
+            return $command.Source
+        }
+
+        return $FilePath
+    }
+
+    return $null
+}
+
+function Invoke-AppInventorUninstall {
+    param([string[]]$UninstallStrings)
+
+    if (-not $UninstallStrings -or $UninstallStrings.Count -eq 0) {
+        Write-Host "No existing $packageName installation found."
+        return
+    }
+
+    $attemptedUninstall = $false
+    foreach ($uninstallString in $UninstallStrings) {
+        $command = Split-AppInventorCommandLine -UninstallString $uninstallString
+        if (-not $command) {
+            continue
+        }
+
+        $filePath = Resolve-AppInventorCommandPath -FilePath $command.FilePath
+        if (-not $filePath) {
+            Write-Warning "Skipping registered $packageName uninstaller because the executable was not found: $($command.FilePath)"
+            continue
+        }
+
+        $arguments = $command.Arguments
+        if ($arguments -notmatch '(^|\s)/S(\s|$)') {
+            $arguments = "$arguments /S".Trim()
+        }
+
+        Write-Host "Uninstalling existing $packageName..."
+        $process = Start-Process -FilePath $filePath -ArgumentList $arguments -Wait -NoNewWindow -PassThru
+        if ($process.ExitCode -ne 0) {
+            throw "$packageName uninstall failed with exit code $($process.ExitCode)."
+        }
+
+        $attemptedUninstall = $true
+    }
+
+    if (-not $attemptedUninstall) {
+        Write-Warning "No usable $packageName uninstaller was found. Continuing with installation."
     }
 }
 
@@ -171,7 +236,7 @@ try {
     Wait-AppInventorSetupProcess
     New-Item -Path $tempDirectory -ItemType Directory -Force | Out-Null
 
-    Invoke-AppInventorUninstall -UninstallString (Get-AppInventorUninstallString)
+    Invoke-AppInventorUninstall -UninstallStrings (Get-AppInventorUninstallCommands)
     $installerUrl = Get-AppInventorDownloadUrl
 
     Write-Host "Downloading $packageName..."
